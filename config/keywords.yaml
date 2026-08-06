@@ -1,0 +1,33 @@
+# Lab 2 参考配置。exclude 词表请持续积累, 它对报纸质量的贡献超乎想象。
+groups:
+  - name: 自选股-宁德时代
+    must: ["宁德时代"]
+    any: ["财报", "定增", "订单", "产能", "调研", "机构"]
+    exclude: ["股吧", "荐股", "牛股", "涨停板揭秘"]
+    weight: 3.0
+    sections: [finance]
+    aliases:
+      宁德时代: ["宁王", "CATL"]
+
+  - name: AI 进展
+    any: ["大模型", "OpenAI", "Anthropic", "推理模型", "开源模型", "AI"]
+    exclude: ["割韭菜", "培训班", "变现", "副业", "教程分享"]
+    weight: 2.0
+    sections: [tech]
+    aliases:
+      AI: ["人工智能", "artificial intelligence"]
+      大模型: ["LLM", "foundation model"]
+
+  - name: 机器人
+    any: ["宇树", "人形机器人", "四足机器人", "具身智能"]
+    exclude: ["概念股", "涨停"]
+    weight: 2.0
+    sections: [tech]
+    aliases:
+      宇树: ["Unitree", "宇树科技"]
+
+  - name: 宏观经济
+    any: ["央行", "LPR", "降准", "降息", "PMI", "CPI", "财政政策", "国常会"]
+    exclude: ["预测", "算命", "必看"]
+    weight: 2.5
+    sections: [finance, policy]
