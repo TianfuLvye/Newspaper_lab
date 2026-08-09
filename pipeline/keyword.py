@@ -111,3 +111,26 @@ class KeywordEngine:
             return 0.0
         total = sum(r.weight for r in rs)
         return total / (total + 2.0)   # 归一到 (0,1),边际递减
+
+    def annotate(self, items) -> list[tuple[object, list[MatchResult]]]:
+        """给一批 Item 打上匹配结果(不改原对象)。
+
+        返回 [(item, matches), ...]，matches 按 weight 降序。
+        加工层用这个做候选池收窄;Collector 禁止调用。
+        """
+        out = []
+        for it in items:
+            body = " ".join(
+                x for x in (getattr(it, "summary", None), getattr(it, "content", None))
+                if x
+            )
+            out.append((it, self.match(getattr(it, "title", "") or "", body)))
+        return out
+
+    def filter_matched(self, items) -> list[tuple[object, MatchResult]]:
+        """只保留至少命中一组的条目,附带权重最高的那组结果。"""
+        kept = []
+        for it, ms in self.annotate(items):
+            if ms:
+                kept.append((it, ms[0]))
+        return kept

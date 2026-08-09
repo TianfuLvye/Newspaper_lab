@@ -10,6 +10,8 @@
 |---|---|---|
 | [lab-00-foundation.md](./lab-00-foundation.md) | Lab 0 · 地基 | 数据契约、幂等入库、CLI、假采集器跑通全链路 |
 | [lab-01-hotlist.md](./lab-01-hotlist.md) | Lab 1 · 热榜聚合 | DailyHotApi 多榜采集、新上榜/蹿升、产出 hotlist.md |
+| [lab-02-trendradar.md](./lab-02-trendradar.md) | Lab 2 · TrendRadar | 关键词 DSL、ADR-001；文末含 2.2 精读笔记 |
+| [adr/001-why-not-trendradar.md](./adr/001-why-not-trendradar.md) | ADR-001 | 只借鉴 TrendRadar 设计、不依赖其运行时 |
 
 ## 后续 Lab 怎么写（模板）
 

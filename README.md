@@ -27,6 +27,7 @@ uv run main.py render --section hotlist  # 写出 render/sections/hotlist.md
 ```bash
 uv run python -m tests.test_all        # Lab 0/2/6/7 核心单测
 uv run python -m tests.test_lab1       # Lab 1 逻辑 + API 连通性
+uv run python -m tests.test_lab2       # Lab 2 关键词 DSL + keywords.yaml
 
 # 长时间稳定性(验收标准:6 小时无崩溃)
 uv run python -m tests.test_lab1_endurance --hours 6
@@ -47,7 +48,9 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | core/registry.py | 1 | 从 sources.yaml 实例化热榜网 |
 | collectors/hotlist_generic.py | 1 | DailyHotApi 通用热榜采集器 |
 | render/hotlist.py | 1 | 今日新上榜 Top 20 → hotlist.md |
-| pipeline/keyword.py | 2 | must/any/exclude/aliases 关键词 DSL |
+| pipeline/keyword.py | 2 | must/any/exclude/weight/sections/aliases + filter_matched |
+| config/keywords.yaml | 2 | ≥5 组关键词（财经/政经/AI） |
+| docs/adr/001-why-not-trendradar.md | 2 | 不把 TrendRadar 当数据源的 ADR |
 | pipeline/dedup.py | 7 | SimHash + 鸽笼分桶 + 语义聚类 |
 | pipeline/score.py | 7 | 多簇兴趣画像、对数正态长度分、探索机制 |
 
