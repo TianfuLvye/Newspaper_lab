@@ -1,0 +1,10 @@
+# Fishnet 全局配置(Lab 1+)
+
+[dailyhot]
+# 自部署 DailyHotApi 基址。勿依赖公共实例——它随时会挂。
+base_url = "http://127.0.0.1:6688"
+timeout_seconds = 20
+
+[paths]
+db = "data/fishnet.db"
+render_dir = "render/sections"

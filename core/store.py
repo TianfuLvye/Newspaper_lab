@@ -206,6 +206,12 @@ class Store:
             [(edition, h) for h in hashes],
         )
 
+    def get_item(self, content_hash: str) -> Item | None:
+        row = self._conn.execute(
+            "SELECT * FROM items WHERE content_hash=?", (content_hash,)
+        ).fetchone()
+        return self._row_to_item(row) if row else None
+
     def newly_entered(self, board: str, window_hours: int = 6) -> list[str]:
         """窗口内首次出现的条目 hash。
 
