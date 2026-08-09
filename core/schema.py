@@ -21,7 +21,9 @@ class Source(str, Enum):
     DOUYIN = "douyin"
     XHS = "xiaohongshu"
     WECHAT_MP = "wechat_mp"
-    NEWS = "news"
+    TOUTIAO = "toutiao"      # 今日头条热榜(细来源;勿再糊进 news)
+    THEPAPER = "thepaper"     # 澎湃新闻热榜
+    NEWS = "news"            # 其它泛新闻源的粗分类
     FINANCE = "finance"
     RSS = "rss"
     OTHER = "other"

@@ -5,7 +5,7 @@
 用 DailyHotApi 拿到「第一桶真鱼」，并做出报纸的第一个真实版面片段：
 
 1. **自部署依赖假设**: 默认打本机 `http://127.0.0.1:6688`（`config/settings.toml`），不绑死公共实例。
-2. **一张网适配多榜**: `HotlistCollector(board, source)`，在 `config/sources.yaml` 声明 weibo / zhihu / bilibili / douyin / toutiao，并加 `thepaper` 作稳定性兜底。
+2. **一张网适配多榜**: `HotlistCollector(board, source)`，在 `config/sources.yaml` 声明 weibo / zhihu / bilibili / douyin / toutiao / thepaper；`source` 用细粒度平台名（不再把头条糊成 `news`）。
 3. **增量检测**: 用 `rank_snapshots` 实现「过去 6 小时新上榜」与「排名蹿升」。
 4. **第一个 Markdown 产物**: `uv run main.py render --section hotlist` → `render/sections/hotlist.md`（今日新上榜 Top 20）。
 5. **注册表**: `core/registry.py` 读配置实例化采集器，`main.py collect` 默认跑全部热榜。
@@ -35,7 +35,7 @@
 ### `collectors/hotlist_generic.py` · `HotlistCollector`
 
 - **目的**: **一个类适配 N 个榜单**——抽象层次在「热榜 API 形态」，不在「微博特殊逻辑」。
-- **为什么 `__init__(board, source)`**: DailyHot 路径名（`/weibo`）和业务 `Source` 枚举不必同名（如 `toutiao` → `news`）。
+- **为什么 `__init__(board, source)`**: DailyHot 路径名（`/weibo`）和业务 `Source` 可分开配置；热榜场景通常同名（`toutiao` → `toutiao`），便于版面溯源。
 - **为什么 `collect()` 里不写库**: 遵守 Lab 0 契约；快照由 `run_collector` 在 `c.board` 有值时统一 `record_snapshot`。
 - **刻意不做**: 关键词过滤、个性化打分、决定版面——那些是 Lab 2 / 7 的事。热榜网的任务只是「把榜捞进 Raw Store」。
 

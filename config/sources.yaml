@@ -1,9 +1,10 @@
 # Lab 1:声明要开的热榜网。board = DailyHotApi 路径名,source = Item.Source 枚举值。
-# 说明:weibo 上游常间歇 500,多挂 baidu 保证「至少 5 平台」验收门槛仍可达成。
+# 说明:weibo 上游常间歇 500,多挂 thepaper 保证「至少 5 平台」验收门槛仍可达成。
+# source 用细粒度平台名(toutiao/thepaper),便于版面溯源;勿再统一标成 news。
 hotlists:
   - {board: weibo, source: weibo}
   - {board: zhihu, source: zhihu}
   - {board: bilibili, source: bilibili}
   - {board: douyin, source: douyin}
-  - {board: toutiao, source: news}
-  - {board: thepaper, source: news}
+  - {board: toutiao, source: toutiao}
+  - {board: thepaper, source: thepaper}
