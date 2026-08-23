@@ -1,0 +1,24 @@
+# Lab 3:自部署 RSSHub(+ Redis 缓存)。
+#
+# 用法: docker compose up -d
+# 公众号 WeWe RSS 见 docker-compose.wewe-rss.yml 与 docs/lab-03-rsshub.md §3.4
+#
+# 知乎 Cookie 等见 .env.example（勿提交 .env）。
+
+services:
+  rsshub:
+    image: diygod/rsshub:chromium-bundled
+    ports:
+      - "1200:1200"
+    environment:
+      NODE_ENV: production
+      CACHE_TYPE: redis
+      REDIS_URL: "redis://redis:6379/"
+      ZHIHU_COOKIES: ${ZHIHU_COOKIES:-}
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:alpine
+    restart: unless-stopped

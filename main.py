@@ -1,11 +1,13 @@
-"""Fishnet 统一 CLI 入口(Lab 0 / Lab 1)。
+"""Fishnet 统一 CLI 入口(Lab 0 / Lab 1 / Lab 3)。
 
 用法示例:
   uv run main.py --help
   uv run main.py collect --only hotlist_weibo
-  uv run main.py collect                 # 跑 sources.yaml 里全部热榜(+可选 dummy)
+  uv run main.py collect --only-rss
+  uv run main.py collect                 # 热榜 + RSS 订阅
   uv run main.py stats
   uv run main.py render --section hotlist
+  uv run main.py render --section subscriptions
 """
 from __future__ import annotations
 
@@ -18,16 +20,34 @@ from core.registry import all_collectors, get_collector, list_collector_names
 from core.settings import load_hotlist_sources, load_settings
 from core.store import Store
 from render.hotlist import write_hotlist_section
+from render.subscriptions import write_subscriptions_section
 
 DEFAULT_DB = Path("data/fishnet.db")
 
 
-def _resolve_collectors(only: str | None, include_dummy: bool):
+def _resolve_collectors(
+    only: str | None,
+    include_dummy: bool,
+    *,
+    only_rss: bool = False,
+    only_hotlist: bool = False,
+):
     if only:
         c = get_collector(only)
         if c is None:
             return None, [only]
         return [c], []
+    if only_rss and only_hotlist:
+        print("不能同时指定 --only-rss 与 --only-hotlist", file=sys.stderr)
+        return None, ["--only-rss/--only-hotlist"]
+    if only_rss:
+        return all_collectors(
+            include_dummy=include_dummy, include_hotlist=False, include_rss=True
+        ), []
+    if only_hotlist:
+        return all_collectors(
+            include_dummy=include_dummy, include_hotlist=True, include_rss=False
+        ), []
     return all_collectors(include_dummy=include_dummy), []
 
 
@@ -35,7 +55,12 @@ def cmd_collect(args: argparse.Namespace) -> int:
     """跑一个或多个采集器,把结果幂等写入 SQLite。"""
     store = Store(args.db)
     try:
-        collectors, unknown = _resolve_collectors(args.only, args.include_dummy)
+        collectors, unknown = _resolve_collectors(
+            args.only,
+            args.include_dummy,
+            only_rss=args.only_rss,
+            only_hotlist=args.only_hotlist,
+        )
         if unknown:
             print(f"未知 collector: {', '.join(unknown)}", file=sys.stderr)
             print(
@@ -51,7 +76,6 @@ def cmd_collect(args: argparse.Namespace) -> int:
         failed = 0
         for c in collectors:
             new, dup = run_collector(c, store)
-            # run_collector 失败时返回 (0,0) 且会写 failed;用 health 粗判
             print(f"[{c.name}] new={new} dup={dup}")
             row = store._conn.execute(
                 "SELECT status FROM collector_runs WHERE collector=? "
@@ -96,21 +120,36 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 def cmd_render(args: argparse.Namespace) -> int:
-    """Lab 1:渲染热榜新上榜片段;其它 section 仍占位。"""
-    if args.section not in (None, "hotlist", "all"):
-        print(f"未知 section: {args.section}(Lab 1 仅支持 hotlist)", file=sys.stderr)
+    """渲染报纸片段:hotlist / subscriptions。"""
+    section = args.section or "hotlist"
+    if section not in ("hotlist", "subscriptions", "all"):
+        print(
+            f"未知 section: {section}(支持 hotlist / subscriptions / all)",
+            file=sys.stderr,
+        )
         return 1
 
     store = Store(args.db)
     try:
-        boards = [r["board"] for r in load_hotlist_sources()]
-        path = write_hotlist_section(
-            store,
-            boards,
-            window_hours=args.window_hours,
-            limit=args.limit,
-        )
-        print(f"wrote {path}")
+        wrote: list[Path] = []
+        if section in ("hotlist", "all"):
+            boards = [r["board"] for r in load_hotlist_sources()]
+            path = write_hotlist_section(
+                store,
+                boards,
+                window_hours=args.window_hours,
+                limit=args.limit,
+            )
+            wrote.append(path)
+        if section in ("subscriptions", "all"):
+            path = write_subscriptions_section(
+                store,
+                window_hours=args.sub_window_hours,
+                limit=args.sub_limit,
+            )
+            wrote.append(path)
+        for p in wrote:
+            print(f"wrote {p}")
         return 0
     finally:
         store.close()
@@ -131,18 +170,16 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "Fishnet 个人情报报纸的命令行入口。\n"
             "Lab 0: dummy 幂等验收。\n"
-            "Lab 1: DailyHotApi 热榜采集 → newly_entered → hotlist.md。"
+            "Lab 1: DailyHotApi 热榜采集 → newly_entered → hotlist.md。\n"
+            "Lab 3: RSSHub 订阅采集 → subscriptions.md。"
         ),
         epilog=(
-            "Lab 1 快速验收:\n"
-            "  1) docker run -d --name dailyhot -p 6688:6688 "
-            "-e ALLOWED_DOMAIN='*' -e ALLOWED_HOST=0.0.0.0 "
-            "imsyy/dailyhot-api:latest\n"
-            "  2) uv run main.py collect\n"
+            "Lab 3 快速验收:\n"
+            "  1) docker compose up -d          # 起 RSSHub(:1200) + redis\n"
+            "  2) uv run main.py collect --only-rss\n"
             "  3) uv run main.py stats\n"
-            "  4) uv run main.py render --section hotlist\n"
-            "  5) 长时间稳定性: uv run python -m tests.test_lab1_endurance "
-            "--hours 6\n"
+            "  4) uv run main.py render --section subscriptions\n"
+            f"  RSSHub 基址(settings): {settings.rsshub_url}\n"
         ),
     )
     parser.add_argument(
@@ -165,12 +202,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="运行采集器,把抓到的 Item 幂等写入数据库",
         description=(
             "运行一张或多张「渔网」(collector)。\n"
-            "默认读取 config/sources.yaml 里的全部热榜网。\n"
+            "默认读取 config/sources.yaml 里的热榜 + feeds 订阅。\n"
             "入库 / 快照 / collector_runs 由 run_collector 统一处理。"
         ),
         epilog=(
             "示例:\n"
             "  uv run main.py collect --only hotlist_weibo\n"
+            "  uv run main.py collect --only-rss\n"
+            "  uv run main.py collect --only-hotlist\n"
             "  uv run main.py collect --include-dummy\n"
             "  uv run main.py collect"
         ),
@@ -181,9 +220,19 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"只跑名为 NAME 的采集器。可选: {names}",
     )
     p_collect.add_argument(
+        "--only-rss",
+        action="store_true",
+        help="只跑 feeds 段的 RSS 订阅采集器(Lab 3)",
+    )
+    p_collect.add_argument(
+        "--only-hotlist",
+        action="store_true",
+        help="只跑热榜采集器(Lab 1),跳过 RSS",
+    )
+    p_collect.add_argument(
         "--include-dummy",
         action="store_true",
-        help="在跑全部热榜时,额外包含 Lab 0 的 dummy 采集器",
+        help="在跑全部时,额外包含 Lab 0 的 dummy 采集器",
     )
     p_collect.add_argument(
         "--strict",
@@ -205,28 +254,42 @@ def build_parser() -> argparse.ArgumentParser:
     p_render = sub.add_parser(
         "render",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        help="渲染报纸片段(Lab 1: hotlist 新上榜 Top 20)",
+        help="渲染报纸片段(hotlist / subscriptions)",
         description=(
-            "Lab 1 实现 --section hotlist:\n"
-            "基于 newly_entered() 写出 render/sections/hotlist.md。"
+            "支持:\n"
+            "  --section hotlist        Lab 1 新上榜 Top N\n"
+            "  --section subscriptions  Lab 3 订阅更新\n"
+            "  --section all            两者都写"
         ),
     )
     p_render.add_argument(
         "--section",
         default="hotlist",
-        help="要渲染的版面(默认 hotlist;Lab 1 仅此一个)",
+        help="要渲染的版面(hotlist / subscriptions / all;默认 hotlist)",
     )
     p_render.add_argument(
         "--window-hours",
         type=int,
         default=6,
-        help="「新上榜」时间窗小时数(默认 6)",
+        help="hotlist「新上榜」时间窗小时数(默认 6)",
     )
     p_render.add_argument(
         "--limit",
         type=int,
         default=20,
-        help="Top N(默认 20)",
+        help="hotlist Top N(默认 20)",
+    )
+    p_render.add_argument(
+        "--sub-window-hours",
+        type=int,
+        default=48,
+        help="subscriptions 时间窗小时数(默认 48)",
+    )
+    p_render.add_argument(
+        "--sub-limit",
+        type=int,
+        default=40,
+        help="subscriptions 展示条数(默认 40)",
     )
     p_render.set_defaults(func=cmd_render)
 

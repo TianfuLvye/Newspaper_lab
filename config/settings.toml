@@ -5,6 +5,11 @@
 base_url = "http://127.0.0.1:6688"
 timeout_seconds = 20
 
+[rsshub]
+# Lab 3:自部署 RSSHub(见仓库根目录 docker-compose.yml)。
+# Docker 网络内其它容器可用 http://rsshub:1200;本机 CLI 用 127.0.0.1。
+base_url = "http://127.0.0.1:1200"
+
 [paths]
 db = "data/fishnet.db"
 render_dir = "render/sections"

@@ -10,12 +10,32 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "config" / "settings.toml"
 SOURCES_PATH = ROOT / "config" / "sources.yaml"
+WECHAT_PATH = ROOT / "config" / "wechat.yaml"
+
+
+def _expand_feed_rows(rows: list[dict], *, rsshub_url: str) -> list[dict]:
+    base = rsshub_url.rstrip("/")
+    out: list[dict] = []
+    for row in rows:
+        item = dict(row)
+        url = str(item.get("url", ""))
+        item["url"] = url.replace("{rsshub}", base)
+        out.append(item)
+    return out
+
+
+def _load_yaml_feeds(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    cfg = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    return list(cfg.get("feeds") or [])
 
 
 @dataclass(frozen=True)
 class Settings:
     dailyhot_url: str = "http://127.0.0.1:6688"
     dailyhot_timeout: float = 20.0
+    rsshub_url: str = "http://127.0.0.1:1200"
     db_path: Path = ROOT / "data" / "fishnet.db"
     render_dir: Path = ROOT / "render" / "sections"
 
@@ -27,10 +47,12 @@ def load_settings(path: Path | None = None) -> Settings:
         with p.open("rb") as f:
             data = tomllib.load(f)
     daily = data.get("dailyhot", {})
+    rsshub = data.get("rsshub", {})
     paths = data.get("paths", {})
     return Settings(
         dailyhot_url=str(daily.get("base_url", "http://127.0.0.1:6688")).rstrip("/"),
         dailyhot_timeout=float(daily.get("timeout_seconds", 20)),
+        rsshub_url=str(rsshub.get("base_url", "http://127.0.0.1:1200")).rstrip("/"),
         db_path=ROOT / paths.get("db", "data/fishnet.db"),
         render_dir=ROOT / paths.get("render_dir", "render/sections"),
     )
@@ -41,3 +63,13 @@ def load_hotlist_sources(path: Path | None = None) -> list[dict]:
     p = path or SOURCES_PATH
     cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     return list(cfg.get("hotlists") or [])
+
+
+def load_feeds(path: Path | None = None, *, rsshub_url: str | None = None) -> list[dict]:
+    """返回已展开 {rsshub} 占位的 feed 配置列表（sources.yaml + 可选 wechat.yaml）。"""
+    p = path or SOURCES_PATH
+    base = (rsshub_url if rsshub_url is not None else load_settings().rsshub_url).rstrip("/")
+    cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    rows = list(cfg.get("feeds") or [])
+    rows.extend(_load_yaml_feeds(WECHAT_PATH))
+    return _expand_feed_rows(rows, rsshub_url=base)

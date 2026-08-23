@@ -9,10 +9,18 @@ wheels/
 # Virtual environments
 .venv
 
+# Secrets (RSSHub / 知乎 Cookie 等)—— 绝不要提交
+.env
+.env.*
+!.env.example
+config/wechat.yaml
+
 # Runtime data (SQLite, rendered md/pdf)
 data/
 *.db
 *.db-*
+render/sections/*.md
+!render/sections/.gitkeep
 
 # OS / editor
 .DS_Store

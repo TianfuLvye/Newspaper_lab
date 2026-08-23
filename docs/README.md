@@ -11,7 +11,9 @@
 | [lab-00-foundation.md](./lab-00-foundation.md) | Lab 0 · 地基 | 数据契约、幂等入库、CLI、假采集器跑通全链路 |
 | [lab-01-hotlist.md](./lab-01-hotlist.md) | Lab 1 · 热榜聚合 | DailyHotApi 多榜采集、新上榜/蹿升、产出 hotlist.md |
 | [lab-02-trendradar.md](./lab-02-trendradar.md) | Lab 2 · TrendRadar | 关键词 DSL、ADR-001；文末含 2.2 精读笔记 |
+| [lab-03-rsshub.md](./lab-03-rsshub.md) | Lab 3 · RSSHub | 自部署、订阅、RSSCollector、WeWe RSS 部署指南（3.4） |
 | [adr/001-why-not-trendradar.md](./adr/001-why-not-trendradar.md) | ADR-001 | 只借鉴 TrendRadar 设计、不依赖其运行时 |
+| [adr/002-wechat-mp-strategy.md](./adr/002-wechat-mp-strategy.md) | ADR-002 | 公众号走 WeWe RSS，Fishnet 只消费 RSS |
 
 ## 后续 Lab 怎么写（模板）
 
