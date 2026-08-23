@@ -13,3 +13,8 @@ base_url = "http://127.0.0.1:1200"
 [paths]
 db = "data/fishnet.db"
 render_dir = "render/sections"
+
+[mediacrawler]
+# Lab 4:MediaCrawler 仓库路径(独立进程,不 import 进 Fishnet)。
+# git clone --depth 1 https://github.com/NanmiCoder/MediaCrawler third_party/MediaCrawler
+home = "third_party/MediaCrawler"

@@ -1,9 +1,10 @@
-"""Fishnet 统一 CLI 入口(Lab 0 / Lab 1 / Lab 3)。
+"""Fishnet 统一 CLI 入口(Lab 0 / Lab 1 / Lab 3 / Lab 4)。
 
 用法示例:
   uv run main.py --help
   uv run main.py collect --only hotlist_weibo
   uv run main.py collect --only-rss
+  uv run main.py collect --only-targeted # Lab 4,不进默认 collect
   uv run main.py collect                 # 热榜 + RSS 订阅
   uv run main.py stats
   uv run main.py render --section hotlist
@@ -31,15 +32,17 @@ def _resolve_collectors(
     *,
     only_rss: bool = False,
     only_hotlist: bool = False,
+    only_targeted: bool = False,
 ):
+    flags = [only_rss, only_hotlist, only_targeted]
+    if sum(bool(x) for x in flags) > 1:
+        print("不能同时指定 --only-rss / --only-hotlist / --only-targeted", file=sys.stderr)
+        return None, ["--only-*"]
     if only:
         c = get_collector(only)
         if c is None:
             return None, [only]
         return [c], []
-    if only_rss and only_hotlist:
-        print("不能同时指定 --only-rss 与 --only-hotlist", file=sys.stderr)
-        return None, ["--only-rss/--only-hotlist"]
     if only_rss:
         return all_collectors(
             include_dummy=include_dummy, include_hotlist=False, include_rss=True
@@ -47,6 +50,13 @@ def _resolve_collectors(
     if only_hotlist:
         return all_collectors(
             include_dummy=include_dummy, include_hotlist=True, include_rss=False
+        ), []
+    if only_targeted:
+        return all_collectors(
+            include_dummy=include_dummy,
+            include_hotlist=False,
+            include_rss=False,
+            include_targeted=True,
         ), []
     return all_collectors(include_dummy=include_dummy), []
 
@@ -60,6 +70,7 @@ def cmd_collect(args: argparse.Namespace) -> int:
             args.include_dummy,
             only_rss=args.only_rss,
             only_hotlist=args.only_hotlist,
+            only_targeted=args.only_targeted,
         )
         if unknown:
             print(f"未知 collector: {', '.join(unknown)}", file=sys.stderr)
@@ -210,6 +221,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  uv run main.py collect --only hotlist_weibo\n"
             "  uv run main.py collect --only-rss\n"
             "  uv run main.py collect --only-hotlist\n"
+            "  uv run main.py collect --only-targeted\n"
             "  uv run main.py collect --include-dummy\n"
             "  uv run main.py collect"
         ),
@@ -228,6 +240,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--only-hotlist",
         action="store_true",
         help="只跑热榜采集器(Lab 1),跳过 RSS",
+    )
+    p_collect.add_argument(
+        "--only-targeted",
+        action="store_true",
+        help="只跑 Lab 4 定向采集(小红书创作者;默认 collect 不会跑它)",
     )
     p_collect.add_argument(
         "--include-dummy",

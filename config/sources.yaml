@@ -103,3 +103,16 @@ feeds:
     source: finance
     kind: article
     weight: 2.0
+
+# Lab 4:定向采集。默认不随 `collect` 全量跑(Playwright 太重)。
+# 只覆盖 RSSHub 做不到的平台:小红书 / 抖音创作者主页。
+# 跑: uv run main.py collect --only-targeted
+# 直播抓取需要本机扫码登录 MediaCrawler;测试用 jsonl fixture,不碰浏览器。
+targeted:
+  - name: "小红书示例创作者"
+    platform: xhs
+    # 填 24 位 user_id,或带 xsec_token 的主页 URL。空则 collect 时明确报错。
+    creator_id: ""
+    source: xiaohongshu
+    kind: post
+    max_notes: 10

@@ -22,6 +22,9 @@ data/
 render/sections/*.md
 !render/sections/.gitkeep
 
+# Lab 4: MediaCrawler 克隆与浏览器档案(含登录态,勿提交)
+third_party/MediaCrawler/
+
 # OS / editor
 .DS_Store
 .idea/

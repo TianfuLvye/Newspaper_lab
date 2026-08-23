@@ -38,6 +38,7 @@ class Settings:
     rsshub_url: str = "http://127.0.0.1:1200"
     db_path: Path = ROOT / "data" / "fishnet.db"
     render_dir: Path = ROOT / "render" / "sections"
+    mc_home: Path = ROOT / "third_party" / "MediaCrawler"
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -49,12 +50,17 @@ def load_settings(path: Path | None = None) -> Settings:
     daily = data.get("dailyhot", {})
     rsshub = data.get("rsshub", {})
     paths = data.get("paths", {})
+    mc = data.get("mediacrawler", {})
+    mc_home = Path(str(mc.get("home", "third_party/MediaCrawler")))
+    if not mc_home.is_absolute():
+        mc_home = ROOT / mc_home
     return Settings(
         dailyhot_url=str(daily.get("base_url", "http://127.0.0.1:6688")).rstrip("/"),
         dailyhot_timeout=float(daily.get("timeout_seconds", 20)),
         rsshub_url=str(rsshub.get("base_url", "http://127.0.0.1:1200")).rstrip("/"),
         db_path=ROOT / paths.get("db", "data/fishnet.db"),
         render_dir=ROOT / paths.get("render_dir", "render/sections"),
+        mc_home=mc_home,
     )
 
 
@@ -73,3 +79,10 @@ def load_feeds(path: Path | None = None, *, rsshub_url: str | None = None) -> li
     rows = list(cfg.get("feeds") or [])
     rows.extend(_load_yaml_feeds(WECHAT_PATH))
     return _expand_feed_rows(rows, rsshub_url=base)
+
+
+def load_targeted(path: Path | None = None) -> list[dict]:
+    """Lab 4:定向采集配置。默认不随全量 collect 启动。"""
+    p = path or SOURCES_PATH
+    cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return [dict(row) for row in (cfg.get("targeted") or [])]
