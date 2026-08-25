@@ -86,6 +86,7 @@ def test_feeds_config_coverage():
         daily["url"],
     )
     check("has bangumi/weekly style feed", len(bangumi_ish) >= 1)
+    check("does not subscribe 每周必看", not any("每周必看" in n for n in names))
     # {rsshub} 应被展开
     check(
         "rsshub placeholder expanded",
@@ -191,6 +192,7 @@ def test_subscriptions_render():
                 title="订阅测试标题",
                 url="https://www.zhihu.com/question/1",
                 author="demo",
+                content="这是印在报纸上的正文,不是一个打开链接。",
                 published_at=datetime(2024, 6, 1, 8, 0, tzinfo=timezone.utc),
                 collector=coll,
             )
@@ -201,7 +203,9 @@ def test_subscriptions_render():
             check("collect_subscription_items", len(items) == 1)
             md = render_subscriptions_md(items, feeds=feeds, window_hours=48)
             check("md has title", "订阅测试标题" in md)
+            check("md has body", "印在报纸上的正文" in md)
             check("md has feed list", "演示源" in md)
+            check("not a click table", "[打开]" not in md)
             out = Path(td) / "sections"
             path = write_subscriptions_section(
                 store, window_hours=24 * 365 * 10, limit=10, out_dir=out
@@ -230,7 +234,6 @@ def test_live_rsshub_smoke():
     # 挑几个相对稳的路由做连通性(知乎可能要 Cookie,失败不直接判整 Lab 挂)
     probes = [
         ("bilibili/泛式", "{rsshub}/bilibili/user/video/63231"),
-        ("bilibili/weekly", "{rsshub}/bilibili/weekly"),
         ("bangumi/today", "{rsshub}/bangumi.tv/calendar/today"),
         ("wsj/official", "https://feeds.a.dj.com/rss/RSSWorldNews.xml"),
         ("wallstreetcn", "{rsshub}/wallstreetcn/news/global"),

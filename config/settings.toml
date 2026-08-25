@@ -13,6 +13,18 @@ base_url = "http://127.0.0.1:1200"
 [paths]
 db = "data/fishnet.db"
 render_dir = "render/sections"
+editions_dir = "data/editions"
+
+[scheduler]
+# Lab 6:常驻调度。时区只影响 cron 出报,采集 interval 用墙上时钟分钟。
+timezone = "Asia/Shanghai"
+jitter_seconds = 120          # 打散整点齐发,避免像一次小型 DDoS
+enrich_interval_hours = 6
+enrich_limit = 40
+am_hour = 7
+am_minute = 0
+pm_hour = 18
+pm_minute = 0
 
 [mediacrawler]
 # Lab 4:MediaCrawler 仓库路径(独立进程,不 import 进 Fishnet)。

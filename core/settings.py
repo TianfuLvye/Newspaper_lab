@@ -47,7 +47,16 @@ class Settings:
         "mp.weixin.qq.com",
         "zhuanlan.zhihu.com",
         "www.zhihu.com",
-    ),
+    )
+    editions_dir: Path = ROOT / "data" / "editions"
+    scheduler_tz: str = "Asia/Shanghai"
+    scheduler_jitter_seconds: int = 120
+    enrich_interval_hours: int = 6
+    enrich_limit: int = 40
+    edition_am_hour: int = 7
+    edition_am_minute: int = 0
+    edition_pm_hour: int = 18
+    edition_pm_minute: int = 0
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -67,6 +76,12 @@ def load_settings(path: Path | None = None) -> Settings:
     cache_dir = Path(str(ex.get("cache_dir", "data/html_cache")))
     if not cache_dir.is_absolute():
         cache_dir = ROOT / cache_dir
+    sched = data.get("scheduler", {})
+
+    def _abs(raw: str) -> Path:
+        pth = Path(raw)
+        return pth if pth.is_absolute() else ROOT / pth
+
     return Settings(
         dailyhot_url=str(daily.get("base_url", "http://127.0.0.1:6688")).rstrip("/"),
         dailyhot_timeout=float(daily.get("timeout_seconds", 20)),
@@ -85,6 +100,15 @@ def load_settings(path: Path | None = None) -> Settings:
                 or ["mp.weixin.qq.com", "zhuanlan.zhihu.com", "www.zhihu.com"]
             )
         ),
+        editions_dir=_abs(paths.get("editions_dir", "data/editions")),
+        scheduler_tz=str(sched.get("timezone", "Asia/Shanghai")),
+        scheduler_jitter_seconds=int(sched.get("jitter_seconds", 120)),
+        enrich_interval_hours=int(sched.get("enrich_interval_hours", 6)),
+        enrich_limit=int(sched.get("enrich_limit", 40)),
+        edition_am_hour=int(sched.get("am_hour", 7)),
+        edition_am_minute=int(sched.get("am_minute", 0)),
+        edition_pm_hour=int(sched.get("pm_hour", 18)),
+        edition_pm_minute=int(sched.get("pm_minute", 0)),
     )
 
 

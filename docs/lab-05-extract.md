@@ -1,7 +1,8 @@
 # Lab 5 · 正文抽取:从标题到内容
 
 > **范围**: 站点路由 + trafilatura 兜底、HTML 缓存、礼貌抓取、质量降级、回填 `items.content`。  
-> **网络**: 验收用 20 页本地 HTML;直播 `enrich` 才打真实站点。
+> **网络**: 验收用 20 页本地 HTML;直播 `enrich` 才打真实站点。  
+> **决策**: 正文来源 / robots 边界见 [ADR-004](./adr/004-extract-and-robots.md)。
 
 ## 本 Lab 完成了什么
 

@@ -1,4 +1,4 @@
-"""Fishnet 统一 CLI 入口(Lab 0 / Lab 1 / Lab 3 / Lab 4 / Lab 5)。
+"""Fishnet 统一 CLI 入口(Lab 0–6)。
 
 用法示例:
   uv run main.py --help
@@ -7,6 +7,9 @@
   uv run main.py collect --only-targeted # Lab 4,不进默认 collect
   uv run main.py collect                 # 热榜 + RSS 订阅
   uv run main.py enrich --limit 20       # Lab 5 正文抽取
+  uv run main.py render --edition am     # Lab 6 出一期早报
+  uv run main.py health                  # Lab 6 系统体检
+  uv run main.py serve                   # Lab 6 常驻调度
   uv run main.py stats
   uv run main.py render --section hotlist
   uv run main.py render --section subscriptions
@@ -136,7 +139,25 @@ def cmd_stats(args: argparse.Namespace) -> int:
 
 
 def cmd_render(args: argparse.Namespace) -> int:
-    """渲染报纸片段:hotlist / subscriptions。"""
+    """渲染报纸片段,或出一期早报/晚报。"""
+    if args.edition:
+        from pipeline.edition import produce_edition
+
+        if args.edition not in ("am", "pm"):
+            print("edition 必须是 am 或 pm", file=sys.stderr)
+            return 1
+        store = Store(args.db)
+        try:
+            result = produce_edition(args.edition, store, out_dir=args.out_dir)
+            print(f"edition {result.edition_id} status={result.status}")
+            print(f"wrote {result.digest_path}")
+            if result.failures:
+                for name, err in result.failures:
+                    print(f"  fail [{name}] {err}", file=sys.stderr)
+            return 0 if result.status != "failed" else 1
+        finally:
+            store.close()
+
     section = args.section or "hotlist"
     if section not in ("hotlist", "subscriptions", "all"):
         print(
@@ -187,6 +208,27 @@ def cmd_enrich(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_health(args: argparse.Namespace) -> int:
+    """打印系统体检 Markdown(与报纸最后一页同一份报告)。"""
+    from pipeline.health import diagnose
+    from render.health import render_health_md
+
+    store = Store(args.db)
+    try:
+        report = diagnose(store)
+        print(render_health_md(report), end="")
+        return 0 if report.ok else 1
+    finally:
+        store.close()
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    """启动 APScheduler 常驻进程。"""
+    from scheduler.run import serve
+
+    return serve(db_path=args.db, include_targeted=not args.no_targeted)
+
+
 def cmd_push(args: argparse.Namespace) -> int:
     print("push: 尚未实现 —— 见 Lab 9(邮件 / Telegram 推送)")
     return 0
@@ -204,7 +246,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Lab 0: dummy 幂等验收。\n"
             "Lab 1: DailyHotApi 热榜采集 → newly_entered → hotlist.md。\n"
             "Lab 3: RSSHub 订阅采集 → subscriptions.md。\n"
-            "Lab 5: trafilatura 正文抽取 → items.content。"
+            "Lab 5: trafilatura 正文抽取 → items.content。\n"
+            "Lab 6: APScheduler 常驻 + 早晚出报 + 系统体检。"
         ),
         epilog=(
             "Lab 3 快速验收:\n"
@@ -293,12 +336,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_render = sub.add_parser(
         "render",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        help="渲染报纸片段(hotlist / subscriptions)",
+        help="渲染报纸片段,或 --edition am/pm 出一期完整 digest",
         description=(
             "支持:\n"
-            "  --section hotlist        Lab 1 新上榜 Top N\n"
-            "  --section subscriptions  Lab 3 订阅更新\n"
-            "  --section all            两者都写"
+            "  --section hotlist        Lab 1 新上榜 Top N(调试,不标记 used_in)\n"
+            "  --section subscriptions  Lab 3 订阅更新(调试,不标记 used_in)\n"
+            "  --section all            两者都写\n"
+            "  --edition am|pm          Lab 6 出一期报纸,写入 data/editions/,标记 used_in"
         ),
     )
     p_render.add_argument(
@@ -330,6 +374,16 @@ def build_parser() -> argparse.ArgumentParser:
         default=40,
         help="subscriptions 展示条数(默认 40)",
     )
+    p_render.add_argument(
+        "--edition",
+        choices=("am", "pm"),
+        help="出一期早报(am)或晚报(pm)。与 --section 互斥,会标记 used_in",
+    )
+    p_render.add_argument(
+        "--out-dir",
+        type=Path,
+        help="edition 输出目录(默认 data/editions/{期号})",
+    )
     p_render.set_defaults(func=cmd_render)
 
     p_enrich = sub.add_parser(
@@ -348,6 +402,32 @@ def build_parser() -> argparse.ArgumentParser:
         help="最多处理多少条缺正文的条目(默认 20)",
     )
     p_enrich.set_defaults(func=cmd_enrich)
+
+    p_health = sub.add_parser(
+        "health",
+        help="系统体检(Lab 6)",
+        description=(
+            "检查过去 24h 从未成功的采集器、产出骤降、数据库大小、最老未处理数据。\n"
+            "与报纸最后一页「系统体检」是同一份报告。"
+        ),
+    )
+    p_health.set_defaults(func=cmd_health)
+
+    p_serve = sub.add_parser(
+        "serve",
+        help="启动常驻调度(Lab 6)",
+        description=(
+            "APScheduler:热榜 30min / RSS 60min / 定向与正文 6h;\n"
+            "每天 07:00 早报、18:00 晚报(Asia/Shanghai)。\n"
+            "Ctrl-C 退出。手动出报请用 render --edition,不必等 cron。"
+        ),
+    )
+    p_serve.add_argument(
+        "--no-targeted",
+        action="store_true",
+        help="不调度 Lab 4 定向采集(默认:已配置 creator_id 的才会挂上)",
+    )
+    p_serve.set_defaults(func=cmd_serve)
 
     p_push = sub.add_parser(
         "push",

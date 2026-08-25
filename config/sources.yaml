@@ -73,11 +73,8 @@ feeds:
     source: bilibili
     kind: post
     weight: 1.5
-  - name: "B站每周必看"
-    url: "{rsshub}/bilibili/weekly"
-    source: bilibili
-    kind: video
-    weight: 1.3
+  # 不订「B站每周必看」:一条榜能吐几十条与个人订阅无关的视频,
+  # 会把报纸订阅版面挤满。新番用下面 Bangumi 日历即可。
   # 注意路由带点号 bangumi.tv(不是 bangumi/tv)
   - name: "Bangumi 今日放送"
     url: "{rsshub}/bangumi.tv/calendar/today"

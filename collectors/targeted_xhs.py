@@ -162,6 +162,8 @@ class XHSCreatorCollector(BaseCollector):
         self._jsonl_path = Path(jsonl_path) if jsonl_path else None
         self._mc_home = Path(mc_home) if mc_home else load_settings().mc_home
         self._out_dir = Path(out_dir) if out_dir else (ROOT / "data" / "mc_out" / self.name)
+        # 没填 creator_id 且没有现成 jsonl 时不要进调度器,否则每 6 小时报一次「未配置」
+        self.enabled = bool(str(cfg.get("creator_id") or "").strip()) or self._jsonl_path is not None
 
     def collect(self) -> Iterable[Item]:
         path = self._jsonl_path or self._run_mediacrawler()

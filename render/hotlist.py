@@ -27,6 +27,7 @@ def collect_newly_entered_items(
     *,
     window_hours: int = 6,
     limit: int = 20,
+    unused_only: bool = False,
 ) -> list[Item]:
     """合并多榜 newly_entered,按 heat/rank 粗排取 Top N。"""
     seen: set[str] = set()
@@ -37,8 +38,11 @@ def collect_newly_entered_items(
                 continue
             seen.add(h)
             it = store.get_item(h)
-            if it is not None:
-                items.append(it)
+            if it is None:
+                continue
+            if unused_only and it.used_in:
+                continue
+            items.append(it)
     items.sort(
         key=lambda x: (
             -(x.heat or 0.0),
@@ -67,16 +71,16 @@ def render_hotlist_md(
         lines.append("")
         return "\n".join(lines)
 
-    lines.append("| # | 来源 | 标题 | 热度 | 链接 |")
-    lines.append("|---|---|---|---|---|")
-    for i, it in enumerate(items, start=1):
-        title_cell = it.title.replace("|", "\\|")
-        url = it.url or ""
-        link = f"[打开]({url})" if url else "-"
-        lines.append(
-            f"| {i} | {it.source.value} | {title_cell} | {_fmt_heat(it.heat)} | {link} |"
-        )
+    lines.append("热榜本身是标题流,没有文章。有平台摘要的写在标题下面;没有的就只能看标题。")
     lines.append("")
+    for i, it in enumerate(items, start=1):
+        lines.append(
+            f"{i}. **{it.title}** · {it.source.value} · 热度 {_fmt_heat(it.heat)}"
+        )
+        blurb = (it.summary or "").strip()
+        if blurb:
+            lines.append(f"   {blurb}")
+        lines.append("")
     return "\n".join(lines)
 
 

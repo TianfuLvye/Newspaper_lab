@@ -276,12 +276,61 @@ class Store:
             SELECT collector,
                    COUNT(*) AS runs,
                    SUM(status='ok') AS ok_runs,
-                   SUM(new_count) AS new_items,
-                   MAX(started_at) AS last_run
-            FROM collector_runs WHERE started_at >= ?
+                   SUM(status='failed') AS failed_runs,
+                   SUM(COALESCE(new_count, 0)) AS new_items,
+                   MAX(started_at) AS last_run,
+                   MAX(CASE WHEN status='ok' THEN started_at END) AS last_ok,
+                   (SELECT error FROM collector_runs r2
+                     WHERE r2.collector = r1.collector AND r2.error IS NOT NULL
+                       AND r2.started_at >= ?
+                     ORDER BY id DESC LIMIT 1) AS last_error
+            FROM collector_runs r1 WHERE started_at >= ?
             GROUP BY collector ORDER BY collector
-        """, (t0,)).fetchall()
+        """, (t0, t0)).fetchall()
         return [dict(r) for r in rows]
+
+    def db_size_bytes(self) -> int:
+        """主库 + WAL/SHM,用来做磁盘水位体检。"""
+        total = 0
+        for suffix in ("", "-wal", "-shm"):
+            p = self.path if suffix == "" else Path(str(self.path) + suffix)
+            if p.exists():
+                total += p.stat().st_size
+        return total
+
+    def unused_age(self) -> tuple[int, float | None]:
+        """未上报纸条目数,以及最老一条距今多少小时。"""
+        n = self._conn.execute(
+            "SELECT COUNT(*) FROM items WHERE used_in IS NULL"
+        ).fetchone()[0]
+        row = self._conn.execute(
+            "SELECT MIN(fetched_at) FROM items WHERE used_in IS NULL"
+        ).fetchone()
+        oldest = row[0] if row else None
+        if not oldest:
+            return int(n), None
+        dt = datetime.fromisoformat(oldest)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        hours = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
+        return int(n), hours
+
+    def unused_readable_age(self) -> tuple[int, float | None]:
+        """未上报纸、且已有正文的文章/帖子。热榜标题堆不算「积压」。"""
+        row = self._conn.execute(
+            "SELECT COUNT(*), MIN(fetched_at) FROM items "
+            "WHERE used_in IS NULL AND kind IN ('article','post') "
+            "AND content IS NOT NULL AND trim(content) != ''"
+        ).fetchone()
+        n = int(row[0] or 0)
+        oldest = row[1]
+        if not oldest:
+            return n, None
+        dt = datetime.fromisoformat(oldest)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        hours = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
+        return n, hours
 
     def stats(self) -> dict:
         c = self._conn.execute

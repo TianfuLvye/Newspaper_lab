@@ -134,10 +134,13 @@ check("每次采集都写快照", snaps == 4, str(snaps))  # 2 items * 2 runs
 
 print("\n[Lab 1] hotlist.md 渲染")
 md = render_hotlist_md([
-    Item(Source.WEIBO, Kind.HOTLIST, "标题|含竖线", "https://a.com", heat=1.2e6, rank=1),
+    Item(Source.WEIBO, Kind.HOTLIST, "标题|含竖线", "https://a.com",
+         heat=1.2e6, rank=1, summary="一句摘要"),
 ])
-check("Markdown 含表头", "| # | 来源 |" in md)
-check("竖线被转义", "标题\\|含竖线" in md)
+check("Markdown 含标题", "标题|含竖线" in md)
+check("含来源和热度", "weibo" in md and "120.0万" in md)
+check("摘要印在标题下", "一句摘要" in md)
+check("不再用打开链接表", "[打开]" not in md)
 out = write_hotlist_section(st, ["weibo", "demo"], out_path=Path(tmp) / "hotlist.md")
 check("写出文件非空", out.exists() and out.stat().st_size > 20, str(out))
 
