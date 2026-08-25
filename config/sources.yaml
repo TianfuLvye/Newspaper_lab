@@ -11,14 +11,16 @@ hotlists:
 
 # Lab 3:RSS / RSSHub 订阅清单。
 # url 里可用 {rsshub} 占位,运行时替换为 settings.toml 的 [rsshub].base_url。
-# 验收要求 ≥10 源;下列以用户指定账号为核心,再补新番 / 财经 / 知乎周刊等稳定源。
+# 验收要求 ≥10 源;下列以用户指定账号为核心,再补新番 / 财经 / 知乎日报早报等稳定源。
 #
 # 用户指定:
 #   - 知乎 Thoughts Memo  L.M.Sherlock
 #   - 知乎 差评君          chai-ping-jun-80 (机构号 /org/)
+#   - 知乎日报             zhi-hu-ri-bao-51-41 (机构号,只收「| 早报 YYYYMMDD」)
 #   - B站 泛式             63231
 #   - B站 好柿花生_Peanut  435128088(用户口述「甜柿花生」)
 #   - 华尔街日报           官方 DJ RSS(RSSHub /wsj/zh-cn 现常 503)
+# 知乎周刊已停更,不再订阅。热榜问题不在这里扒回答,点名后再拉。
 feeds:
   # —— 知乎 ——
   - name: "Thoughts Memo 动态"
@@ -41,11 +43,14 @@ feeds:
     source: zhihu
     kind: article
     weight: 1.8
-  - name: "知乎周刊"
-    url: "{rsshub}/zhihu/weekly"
+  - name: "知乎日报 早报"
+    url: "{rsshub}/zhihu/posts/org/zhi-hu-ri-bao-51-41"
     source: zhihu
     kind: article
-    weight: 1.2
+    weight: 1.6
+    # 只要早报。标题用全角「｜早报 YYYYMMDD」;过长标题会被 RSSHub 截断,
+    # 此时用正文开头「嘿，这里是知乎早报」兜底。瞎扯等帖不含「早报」。
+    title_regex: 早报
 
   # —— B 站指定 UP + 新番 ——
   - name: "泛式 投稿"

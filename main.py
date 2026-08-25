@@ -1,4 +1,4 @@
-"""Fishnet 统一 CLI 入口(Lab 0 / Lab 1 / Lab 3 / Lab 4)。
+"""Fishnet 统一 CLI 入口(Lab 0 / Lab 1 / Lab 3 / Lab 4 / Lab 5)。
 
 用法示例:
   uv run main.py --help
@@ -6,6 +6,7 @@
   uv run main.py collect --only-rss
   uv run main.py collect --only-targeted # Lab 4,不进默认 collect
   uv run main.py collect                 # 热榜 + RSS 订阅
+  uv run main.py enrich --limit 20       # Lab 5 正文抽取
   uv run main.py stats
   uv run main.py render --section hotlist
   uv run main.py render --section subscriptions
@@ -122,6 +123,10 @@ def cmd_stats(args: argparse.Namespace) -> int:
                     f"(最近一次 [{row['collector']}] 状态={row['status']})",
                     file=sys.stderr,
                 )
+        print(
+            f"with_content={st['with_content']} "
+            f"missing={n_items - st['with_content']}"
+        )
         if st["by_source"]:
             parts = [f"{k}={v}" for k, v in sorted(st["by_source"].items())]
             print("by_source: " + ", ".join(parts))
@@ -166,6 +171,22 @@ def cmd_render(args: argparse.Namespace) -> int:
         store.close()
 
 
+def cmd_enrich(args: argparse.Namespace) -> int:
+    """Lab 5:把缺正文的条目抽一遍,回填 items.content。"""
+    from enrich.extract import enrich_store
+
+    store = Store(args.db)
+    try:
+        stats = enrich_store(store, limit=args.limit)
+        print(
+            f"enrich ok={stats['ok']} degraded={stats['degraded']} "
+            f"blocked={stats['blocked']} error={stats['error']} cached={stats['cached']}"
+        )
+        return 0
+    finally:
+        store.close()
+
+
 def cmd_push(args: argparse.Namespace) -> int:
     print("push: 尚未实现 —— 见 Lab 9(邮件 / Telegram 推送)")
     return 0
@@ -182,7 +203,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Fishnet 个人情报报纸的命令行入口。\n"
             "Lab 0: dummy 幂等验收。\n"
             "Lab 1: DailyHotApi 热榜采集 → newly_entered → hotlist.md。\n"
-            "Lab 3: RSSHub 订阅采集 → subscriptions.md。"
+            "Lab 3: RSSHub 订阅采集 → subscriptions.md。\n"
+            "Lab 5: trafilatura 正文抽取 → items.content。"
         ),
         epilog=(
             "Lab 3 快速验收:\n"
@@ -309,6 +331,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="subscriptions 展示条数(默认 40)",
     )
     p_render.set_defaults(func=cmd_render)
+
+    p_enrich = sub.add_parser(
+        "enrich",
+        help="抽取正文并回填 items.content(Lab 5)",
+        description=(
+            "对库里尚无 content 的条目做正文抽取。\n"
+            "同一 URL 24h 内走 HTML 缓存;同域名请求间隔 ≥1.5s;遵守 robots.txt。\n"
+            "质量不够则保持 content 为空,降级为标题 + summary。"
+        ),
+    )
+    p_enrich.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="最多处理多少条缺正文的条目(默认 20)",
+    )
+    p_enrich.set_defaults(func=cmd_enrich)
 
     p_push = sub.add_parser(
         "push",

@@ -14,6 +14,8 @@ docker run -d --name dailyhot -p 6688:6688 \
   imsyy/dailyhot-api:latest
 # Lab 3: RSSHub + Redis
 docker compose up -d
+# 知乎等路由需要 Cookie:把 ZHIHU_COOKIES 写进 .env 后,必须重建容器才会读到:
+# docker compose up -d --force-recreate rsshub
 # Lab 3.4 公众号（可选）: 见 docs/lab-03-rsshub.md
 # docker compose -f docker-compose.yml -f docker-compose.wewe-rss.yml up -d
 ```
@@ -25,6 +27,7 @@ uv run main.py collect --only-hotlist       # 只跑热榜
 uv run main.py collect --only-rss           # 只跑订阅
 uv run main.py collect --only-targeted      # Lab 4 小红书创作者(不进默认 collect)
 uv run main.py collect                      # 热榜 + RSS
+uv run main.py enrich --limit 20            # Lab 5 正文抽取
 uv run main.py stats
 uv run main.py render --section hotlist
 uv run main.py render --section subscriptions
@@ -39,6 +42,7 @@ uv run python -m tests.test_lab1       # Lab 1 逻辑 + API 连通性
 uv run python -m tests.test_lab2       # Lab 2 关键词 DSL + keywords.yaml
 uv run python -m tests.test_lab3       # Lab 3 RSS / 订阅版面
 uv run python -m tests.test_lab4       # Lab 4 MediaCrawler 隔离 / fixture 入库
+uv run python -m tests.test_lab5       # Lab 5 正文抽取 / 缓存 / 降级
 
 # 长时间稳定性(验收标准:6 小时无崩溃)
 uv run python -m tests.test_lab1_endurance --hours 6
@@ -60,6 +64,7 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | collectors/hotlist_generic.py | 1 | DailyHotApi 通用热榜采集器 |
 | collectors/rss_generic.py | 3 | 通用 RSS / RSSHub 采集器 |
 | collectors/targeted_xhs.py | 4 | 子进程调 MediaCrawler,jsonl → Item |
+| enrich/extract.py | 5 | trafilatura 正文抽取、缓存、质量降级 |
 | render/hotlist.py | 1 | 今日新上榜 Top 20 → hotlist.md |
 | render/subscriptions.py | 3 | 订阅更新 → subscriptions.md |
 | pipeline/keyword.py | 2 | must/any/exclude/weight/sections/aliases + filter_matched |
@@ -76,7 +81,6 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 ## 仍待实现
 
 - Lab 4 直播抓取:本机扫码 MediaCrawler + 填写 `targeted.creator_id`(fixture 路径已验收)
-- `enrich/extract.py` —— 正文抽取(需 trafilatura)
 - `render/*` 完整报纸 —— Jinja2 → Markdown → PDF(Lab 8)
 - `notify/*` —— 邮件 / Telegram 推送
 - `scheduler/run.py` —— APScheduler 编排

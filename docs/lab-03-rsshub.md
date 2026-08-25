@@ -17,7 +17,7 @@
 |---|---|
 | 自建 RSSHub 跑通 | `docker compose up -d` |
 | ≥10 订阅源 | `sources.yaml` feeds |
-| B 站 UP + 知乎 + 新番 | 泛式/好柿花生；Thoughts Memo/差评君；Bangumi + weekly |
+| B 站 UP + 知乎 + 新番 | 泛式/好柿花生；Thoughts Memo/差评君；知乎日报早报；Bangumi + B 站 weekly |
 | 公众号方案 | ADR-002 + WeWe RSS compose 文件 |
 | subscriptions.md | `render/subscriptions.py` |
 
@@ -101,6 +101,14 @@ uv run main.py render --section subscriptions
 | 全文模式 | 在 `docker-compose.wewe-rss.yml` 里设 `FEED_MODE: fulltext`（更慢） |
 
 架构决策详见 [ADR-002](./adr/002-wechat-mp-strategy.md)。
+
+## 知乎订阅(机构号 / 个人号)
+
+- **指定作者**: `zhihu/people/activities/{id}` 与 `zhihu/people/answers/{id}`(Thoughts Memo、差评君)。
+- **知乎日报机构号**: `zhihu/posts/org/zhi-hu-ri-bao-51-41`,主页 `https://www.zhihu.com/org/zhi-hu-ri-bao-51-41`。配置了 `title_regex: 早报`(匹配标题里的「｜早报 YYYYMMDD」,以及正文「嘿，这里是知乎早报」),「瞎扯」等其它帖丢掉。
+- **知乎周刊**已停更,不再订 `/zhihu/weekly`。
+- **热榜问题**仍走 DailyHot,不在 RSS 里扒回答;以后点名再拉高赞回答。
+- 知乎 RSSHub 路由常 403/503:在 `.env` 填 `ZHIHU_COOKIES`(见 `.env.example`),然后 `docker compose up -d`。Cookie 只给 RSSHub 容器,不要提交。
 
 ## 本地怎么验收（RSS 订阅部分）
 

@@ -39,6 +39,15 @@ class Settings:
     db_path: Path = ROOT / "data" / "fishnet.db"
     render_dir: Path = ROOT / "render" / "sections"
     mc_home: Path = ROOT / "third_party" / "MediaCrawler"
+    extract_cache_dir: Path = ROOT / "data" / "html_cache"
+    extract_cache_ttl_hours: float = 24.0
+    extract_delay_seconds: float = 1.5
+    extract_min_chars: int = 200
+    extract_robots_override_hosts: tuple[str, ...] = (
+        "mp.weixin.qq.com",
+        "zhuanlan.zhihu.com",
+        "www.zhihu.com",
+    ),
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -54,6 +63,10 @@ def load_settings(path: Path | None = None) -> Settings:
     mc_home = Path(str(mc.get("home", "third_party/MediaCrawler")))
     if not mc_home.is_absolute():
         mc_home = ROOT / mc_home
+    ex = data.get("extract", {})
+    cache_dir = Path(str(ex.get("cache_dir", "data/html_cache")))
+    if not cache_dir.is_absolute():
+        cache_dir = ROOT / cache_dir
     return Settings(
         dailyhot_url=str(daily.get("base_url", "http://127.0.0.1:6688")).rstrip("/"),
         dailyhot_timeout=float(daily.get("timeout_seconds", 20)),
@@ -61,6 +74,17 @@ def load_settings(path: Path | None = None) -> Settings:
         db_path=ROOT / paths.get("db", "data/fishnet.db"),
         render_dir=ROOT / paths.get("render_dir", "render/sections"),
         mc_home=mc_home,
+        extract_cache_dir=cache_dir,
+        extract_cache_ttl_hours=float(ex.get("cache_ttl_hours", 24)),
+        extract_delay_seconds=float(ex.get("delay_seconds", 1.5)),
+        extract_min_chars=int(ex.get("min_chars", 200)),
+        extract_robots_override_hosts=tuple(
+            str(h)
+            for h in (
+                ex.get("robots_override_hosts")
+                or ["mp.weixin.qq.com", "zhuanlan.zhihu.com", "www.zhihu.com"]
+            )
+        ),
     )
 
 

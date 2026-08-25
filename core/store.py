@@ -206,6 +206,26 @@ class Store:
             [(edition, h) for h in hashes],
         )
 
+    def items_missing_content(self, limit: int = 50) -> list[Item]:
+        """Lab 5:尚未抽出正文、但有 http(s) 链接的条目。"""
+        rows = self._conn.execute(
+            "SELECT * FROM items WHERE url LIKE 'http%' "
+            "AND (content IS NULL OR trim(content) = '') "
+            "ORDER BY fetched_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_item(r) for r in rows]
+
+    def update_content(self, content_hash: str, content: str) -> None:
+        """回填 items.content。空字符串视为无效,不写。"""
+        text = (content or "").strip()
+        if not text:
+            return
+        self._conn.execute(
+            "UPDATE items SET content=? WHERE content_hash=?",
+            (text, content_hash),
+        )
+
     def get_item(self, content_hash: str) -> Item | None:
         row = self._conn.execute(
             "SELECT * FROM items WHERE content_hash=?", (content_hash,)

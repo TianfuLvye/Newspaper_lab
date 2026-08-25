@@ -92,6 +92,10 @@ class RSSCollector(BaseCollector):
         # 允许单源覆盖默认轮询间隔(高频 UP 可配更短)
         if cfg.get("interval_minutes"):
             self.interval_minutes = int(cfg["interval_minutes"])
+        self._title_re = None
+        pat = cfg.get("title_regex")
+        if pat:
+            self._title_re = re.compile(str(pat))
 
     def collect(self):
         url = self.cfg["url"]
@@ -122,8 +126,16 @@ class RSSCollector(BaseCollector):
             link = (e.get("link") or "").strip()
             if not title and not link:
                 continue
-            summary = _strip_html(e.get("summary", "") or e.get("description", ""))[:500]
+            summary_full = _strip_html(e.get("summary", "") or e.get("description", ""))
+            if self._title_re is not None:
+                blob = f"{title}\n{summary_full}"
+                if not self._title_re.search(blob):
+                    continue
+            summary = summary_full[:500] or None
             content = _extract_content(e)
+            # RSSHub 快讯往往只有 summary、没有 content:encoded;别把全文截成 500 字后丢掉。
+            if not content and len(summary_full) >= 80:
+                content = summary_full
             tags = []
             for t in e.get("tags") or []:
                 term = t.get("term") if isinstance(t, dict) else getattr(t, "term", None)

@@ -64,7 +64,7 @@ def test_feeds_config_coverage():
     check("feeds >= 10", len(feeds) >= 10, f"got {len(feeds)}")
     names = {f["name"] for f in feeds}
     # 用户指定账号必须出现
-    must_substrings = ["Thoughts Memo", "差评君", "泛式", "好柿花生", "华尔街日报"]
+    must_substrings = ["Thoughts Memo", "差评君", "知乎日报", "泛式", "好柿花生", "华尔街日报"]
     for s in must_substrings:
         check(f"feed covers {s}", any(s in n for n in names))
     # 验收:至少 2 个 B 站 UP + 至少 1 个知乎 + 新番相关
@@ -78,7 +78,13 @@ def test_feeds_config_coverage():
         if "bangumi" in f["url"] or "weekly" in f["url"] or "新番" in f["name"] or "放送" in f["name"]
     ]
     check("≥2 bilibili UP video feeds", len(bili_video) >= 2, str(len(bili_video)))
-    check("≥1 zhihu feed", len(zhihu) >= 1, str(len(zhihu)))
+    daily = next(f for f in feeds if "知乎日报" in f["name"])
+    check("zaobao title_regex set", bool(daily.get("title_regex")))
+    check(
+        "zaobao uses org posts route",
+        "posts/org/zhi-hu-ri-bao-51-41" in daily["url"],
+        daily["url"],
+    )
     check("has bangumi/weekly style feed", len(bangumi_ish) >= 1)
     # {rsshub} 应被展开
     check(
@@ -256,11 +262,53 @@ def test_live_rsshub_smoke():
     )
 
 
+def test_title_regex_keeps_zaobao_only():
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+    <rss version="2.0">
+      <channel>
+        <title>知乎日报</title>
+        <item>
+          <title>某条新闻；另一条｜早报 20260821</title>
+          <link>https://zhuanlan.zhihu.com/p/111</link>
+          <description>嘿，这里是知乎早报！编辑部小李准备了每日热点。</description>
+        </item>
+        <item>
+          <title>瞎扯 · 见过哪些离大谱的翻译？</title>
+          <link>https://zhuanlan.zhihu.com/p/222</link>
+          <description>不该入库</description>
+        </item>
+        <item>
+          <title>朱雀三号成功回收，公积金政策调整取消收...</title>
+          <link>https://zhuanlan.zhihu.com/p/333</link>
+          <description>嘿，这里是知乎早报！编辑部小李准备了每日热点。</description>
+        </item>
+      </channel>
+    </rss>
+    """
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "daily.xml"
+        path.write_text(xml, encoding="utf-8")
+        cfg = {
+            "name": "知乎日报 早报",
+            "url": path.as_uri(),
+            "source": "zhihu",
+            "kind": "article",
+            "title_regex": "早报",
+        }
+        items = list(RSSCollector(cfg).collect())
+        check("only zaobao kept", len(items) == 2, str(len(items)))
+        titles = {it.title for it in items}
+        check("keeps fullwidth pipe title", any("早报 20260821" in t for t in titles))
+        check("keeps truncated title via body", any("朱雀三号" in t for t in titles))
+        check("drops 瞎扯", not any("瞎扯" in t for t in titles))
+
+
 def main():
     test_slugify_and_helpers()
     test_feeds_config_coverage()
     test_registry_rss_collectors()
     test_rss_collector_local_feed()
+    test_title_regex_keeps_zaobao_only()
     test_subscriptions_render()
     test_lab34_wechat_adr()
     test_live_rsshub_smoke()
