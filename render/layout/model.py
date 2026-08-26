@@ -81,7 +81,6 @@ class PlacedBlock:
     section: str = ""
     article_id: str = ""
     n_text_cols: int = 1
-    title_capped: bool = False
     teasers: list[tuple[str, str, int]] = field(default_factory=list)
 
 

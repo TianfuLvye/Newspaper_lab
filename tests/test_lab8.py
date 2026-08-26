@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 import tempfile
 import time
@@ -279,6 +280,34 @@ check("稿件之间有细线", "rule-v" in html or "rule-h" in html)
 check("正文按段落输出", "<p>" in html)
 check("CSS 分栏从左填满", "column-fill: auto" in html)
 check("热榜加粗不是星号", "<strong>甲事件</strong>" in html and "**甲事件**" not in html)
+from render.html_out import write_html
+
+huge_html = tmp / "huge.html"
+write_html(huge, huge_html)
+ht = huge_html.read_text(encoding="utf-8")
+check(
+    "续文用原题+上接指路,不印编号",
+    ht.count("测试稿件01") >= 2
+    and "上接第" in ht
+    and not re.search(r"（上接", ht)
+    and not re.search(r"上接[^<]*·\s*F", ht),
+)
+from html import unescape as _unesc
+from render.layout.measure import line_height_mm as _lh_mm
+
+bad_titles = []
+for m in re.finditer(
+    r'<div class="title" style="[^"]*?width:([\d.]+)mm;height:([\d.]+)mm;'
+    r'font-size:([\d.]+)pt">(.*?)</div>',
+    ht + html,
+    re.S,
+):
+    w_, h_, s_ = float(m.group(1)), float(m.group(2)), float(m.group(3))
+    t_ = _unesc(re.sub(r"<[^>]+>", "", m.group(4)))
+    need = len(wrap_text(t_, w_, s_)) * _lh_mm(s_, 1.12)
+    if need > h_ + 1.0:
+        bad_titles.append((t_[:10], round(need, 1), h_))
+check("标题按自然高度占位,盒高装得下整题", not bad_titles, str(bad_titles[:3]))
 skinny = [
     (b.article_id, b.cells.w, b.cells.h)
     for p in news.layout.pages

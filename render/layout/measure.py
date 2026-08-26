@@ -190,7 +190,9 @@ class TypeSpec:
 
 def title_size(section: str, part: int, types: TypeSpec, *, lead: bool = False) -> float:
     if part > 0:
-        return types.kicker_pt + 2.0
+        # 跳页题:比正文大、比首发题小。读者翻到这版,靠题面认文章,
+        # 「上接第N版」只是 kicker 里的辅助信息。
+        return max(11.5, types.title_pt - 6.5)
     if lead and section == "headline":
         return types.title_lead_pt
     if section == "headline":

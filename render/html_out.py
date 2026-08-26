@@ -193,8 +193,9 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
     ch = b.chunk
     kicker = (ch.article.kicker if ch else b.section) or b.section
     if ch and ch.part > 0:
-        kicker = f"{kicker} · 续"
-    jump_src = "本版" if b.jump_from in (None, b.page + 1) else f"第 {b.jump_from} 版"
+        # 「上接第N版」放 kicker:续文块也有堂堂正正的标题,指路信息不占题面
+        jump_src = "本版" if b.jump_from in (None, b.page + 1) else f"第 {b.jump_from} 版"
+        kicker = f"{kicker} · 上接{jump_src}"
     bits: list[str] = []
     kick_box = b.title_rect or MmRect(
         b.mm.x + types.pad_mm, b.mm.y + types.pad_mm, max(10.0, b.mm.w - types.pad_mm * 2), types.kicker_bar_mm
@@ -206,8 +207,6 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
     )
     if ch:
         title = ch.article.title
-        if ch.part > 0:
-            title = f"（上接{jump_src} · {ch.article.fn or ch.article.id}）"
         ts = title_size(
             ch.article.section,
             ch.part,

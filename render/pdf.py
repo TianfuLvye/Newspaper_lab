@@ -242,7 +242,9 @@ def _draw_article(
     pad = types.pad_mm
     kicker = ch.article.kicker or block.section
     if ch.part > 0:
-        kicker = f"{kicker} · 续"
+        frm = block.jump_from
+        src = f"第 {frm} 版" if frm is not None and frm != block.page + 1 else "本版"
+        kicker = f"{kicker} · 上接{src}"
     kick_box = block.title_rect or MmRect(r.x + pad, r.y + pad, r.w - pad * 2, types.kicker_bar_mm)
     c.setFillColor(MUTED)
     c.setFont(body_font, types.kicker_pt)
@@ -254,10 +256,6 @@ def _draw_article(
 
     if block.title_rect is not None:
         title = ch.article.title
-        if ch.part > 0:
-            frm = block.jump_from
-            src = f"第 {frm} 版" if frm is not None and frm != block.page + 1 else "本版"
-            title = f"（上接{src} · {ch.article.fn or ch.article.id}）"
         ts = title_size(
             ch.article.section,
             ch.part,

@@ -158,6 +158,11 @@ def estimate_area_cells(chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: in
         title_h = estimate_title_height_mm(art.title, inner_w, ts, types)
         if art.byline:
             title_h += 4.2
+    else:
+        # 跳页题同样占位:续文面积要把小号原题算进去,不然尾巴按「无题」估小,
+        # 排出来就是题贴文、文贴边的火柴梗。
+        ts = title_size(art.section, chunk.part, types)
+        title_h = estimate_title_height_mm(art.title, inner_w, ts, types)
 
     img_h = estimate_well_height_mm(chunk.images, inner_w) if chunk.part == 0 else 0.0
     img_w = estimate_well_width_mm(chunk.images, 80.0) if chunk.part == 0 else 0.0
@@ -471,8 +476,6 @@ def _compact_attempts(
                     continue
                 if block.chunk.body != att.source.body:
                     continue
-                if block.title_capped and not att.block.title_capped:
-                    continue
                 if len(block.image_boxes) < len(att.block.image_boxes):
                     continue
                 shrunk = block
@@ -537,7 +540,8 @@ def _materialize(
     body_space = inner
     images = list(chunk.images) if chunk.part == 0 else []
 
-    title_capped = False
+    # 标题是占位元素:按自然高度参与版面计算,绝不压顶裁剪。
+    # 装不下的正文走续文;标题永远完整示人。
     if chunk.part == 0:
         ts = title_size(
             art.section,
@@ -548,13 +552,12 @@ def _materialize(
         th = estimate_title_height_mm(art.title or art.kicker or " ", inner.w, ts, types)
         if art.byline:
             th += 4.0
-        cap = max(14.0, inner.h * 0.48)
-        title_capped = th > cap + 1e-6
-        th = min(th, cap)
-        title_rect, body_space = inner.split_top(th)
-    elif chunk.part > 0:
-        cont_h = 8.0
-        title_rect, body_space = inner.split_top(cont_h)
+    else:
+        # 续文也印原题(小号跳页题):题面才是指路牌,「上接第N版」由 kicker 携带
+        ts = title_size(art.section, chunk.part, types)
+        th = estimate_title_height_mm(art.title or " ", inner.w, ts, types)
+    th = min(th, max(6.0, inner.h - line_height_mm(types.body_pt, types.line_ratio)))
+    title_rect, body_space = inner.split_top(th)
 
     plan = plan_image_slots(body_space, images)
     text_rect = plan.text_rect or body_space
@@ -623,7 +626,6 @@ def _materialize(
         section=art.section,
         article_id=art.id,
         n_text_cols=n_cols,
-        title_capped=title_capped,
     )
     return block, rest
 
