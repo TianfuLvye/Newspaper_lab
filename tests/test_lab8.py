@@ -246,7 +246,7 @@ tmp = Path(tempfile.mkdtemp())
 (tmp / "07_critical.md").write_text("# 今日一问\n\n_本栏目今日无入选。_\n", encoding="utf-8")
 (tmp / "06_subscribe.md").write_text("# 订阅更新\n\n_本栏目今日无数据。_\n", encoding="utf-8")
 (tmp / "99_health.md").write_text("# 系统体检\n\n**告警 0 项**\n", encoding="utf-8")
-(tmp / "digest.md").write_text("# 渔网早报 · test-lab8\n\n> 期号 `test-lab8`\n", encoding="utf-8")
+(tmp / "digest.md").write_text("# 自动日报 · 早报 · test-lab8\n\n> 期号 `test-lab8`\n", encoding="utf-8")
 
 t0 = time.monotonic()
 news = render_newspaper(tmp, kind="am", edition_id="test-lab8")

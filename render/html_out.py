@@ -22,7 +22,7 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>渔网{flag} · {html.escape(layout.edition_id)}</title>
+<title>自动日报{flag} · {html.escape(layout.edition_id)}</title>
 <style>
   @page {{ size: A3 portrait; margin: 0; }}
   html, body {{ margin: 0; padding: 0; background: #ddd; }}
@@ -117,7 +117,7 @@ def _page_html(layout: LayoutResult, idx: int) -> str:
             "footer",
             foot,
             html.escape(
-                f"渔网{flag}  {layout.edition_id}  ·  第 {idx + 1} 版 / 共 {layout.n_pages} 版"
+                f"自动日报{flag}  {layout.edition_id}  ·  第 {idx + 1} 版 / 共 {layout.n_pages} 版"
             ),
         )
     )
@@ -158,7 +158,7 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
     if b.kind in ("masthead", "folio"):
         if b.kind == "folio":
             inner = (
-                f'<div class="folio-line">渔  网　'
+                f'<div class="folio-line">自动日报　'
                 f'{"早  报" if layout.kind == "am" else "晚  报"}'
                 f'<span style="float:right">{html.escape(layout.edition_id)} · 第 {b.page + 1} 版</span></div>'
             )
@@ -166,9 +166,9 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
         lede = html.escape(layout.lede or "")
         inner = (
             f'<div class="mast-flag">{"早  报" if layout.kind == "am" else "晚  报"}</div>'
-            f'<div class="mast-name">渔　　网</div>'
+            f'<div class="mast-name">自动日报</div>'
             f'<div class="mast-meta"><span>{html.escape(layout.edition_id)} · {layout.n_articles} 篇入版</span>'
-            f"<span>FISHNET</span></div>"
+            f"<span>AUTO DAILY</span></div>"
             f'<div class="mast-lede">{lede}</div>'
         )
         return _abs_div("masthead", b.mm, inner)

@@ -183,7 +183,7 @@ def _merge_digest(
     ts = datetime.now(CST).strftime("%Y-%m-%d %H:%M CST")
     label = "早报" if kind == "am" else "晚报"
     lines = [
-        f"# 渔网{label} · {edition_id}",
+        f"# 自动日报 · {label} · {edition_id}",
         "",
         f"> 期号 `{edition_id}` · 生成于 {ts}",
         f"> 版面 {len(sections)} · 失败 {len(failures)}",

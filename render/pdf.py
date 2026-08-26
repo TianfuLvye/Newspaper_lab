@@ -33,8 +33,8 @@ def write_pdf(layout: LayoutResult, path: Path) -> Path:
     w = mm_to_pt(layout.geom.page_w)
     h = mm_to_pt(layout.geom.page_h)
     c = canvas.Canvas(str(path), pagesize=(w, h))
-    c.setTitle(f"渔网{('早报' if layout.kind == 'am' else '晚报')} · {layout.edition_id}")
-    c.setAuthor("Fishnet")
+    c.setTitle(f"自动日报{('早报' if layout.kind == 'am' else '晚报')} · {layout.edition_id}")
+    c.setAuthor("自动日报")
     for page in layout.pages:
         _draw_page(c, layout, page, types, fonts.body, fonts.title, h)
         c.showPage()
@@ -85,7 +85,7 @@ def _draw_page(
     c.setFont(body_font, 7.0)
     label = "早报" if layout.kind == "am" else "晚报"
     text = (
-        f"渔网{label}  {layout.edition_id}  ·  第 {page.index + 1} 版 / 共 {layout.n_pages} 版"
+        f"自动日报{label}  {layout.edition_id}  ·  第 {page.index + 1} 版 / 共 {layout.n_pages} 版"
     )
     c.drawString(mm_to_pt(foot.x), _y(page_h_pt, foot.y + 4.2), text)
     _hline(c, foot.x, foot.right, foot.y, page_h_pt, 0.5)
@@ -127,7 +127,7 @@ def _draw_masthead(
         c.setFillColor(INK)
         c.setFont(title_font, 11)
         flag = "早报" if layout.kind == "am" else "晚报"
-        c.drawString(mm_to_pt(r.x), _y(page_h_pt, r.y + 8.5), f"渔  网  ·  {flag}")
+        c.drawString(mm_to_pt(r.x), _y(page_h_pt, r.y + 8.5), f"自动日报 · {flag}")
         c.setFont(body_font, 8)
         c.drawRightString(
             mm_to_pt(r.right),
@@ -140,7 +140,7 @@ def _draw_masthead(
     _hline(c, r.x, r.right, r.y + 0.6, page_h_pt, 1.1)
     c.setFillColor(INK)
     c.setFont(title_font, 42)
-    c.drawCentredString(mm_to_pt(r.x + r.w / 2), _y(page_h_pt, r.y + 18.0), "渔　　网")
+    c.drawCentredString(mm_to_pt(r.x + r.w / 2), _y(page_h_pt, r.y + 18.0), "自　动　日　报")
     c.setFont(title_font, 11)
     flag = "早  报" if layout.kind == "am" else "晚  报"
     c.drawRightString(mm_to_pt(r.right), _y(page_h_pt, r.y + 18.0), flag)
@@ -153,7 +153,7 @@ def _draw_masthead(
         _y(page_h_pt, r.y + 26.0),
         f"{layout.edition_id}  ·  {layout.n_articles} 篇入版  ·  {layout.geom.cols} 栏",
     )
-    c.drawRightString(mm_to_pt(r.right), _y(page_h_pt, r.y + 26.0), "FISHNET")
+    c.drawRightString(mm_to_pt(r.right), _y(page_h_pt, r.y + 26.0), "AUTO DAILY")
     _hline(c, r.x, r.right, r.y + 28.2, page_h_pt, 0.35)
     lede = layout.lede or ""
     if lede:
