@@ -21,6 +21,7 @@ from lxml import html as lhtml
 from core.schema import Item
 from core.settings import Settings, load_settings
 from core.store import Store
+from core.text import html_to_text, normalize_paragraphs, strip_zhihu_footer
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -32,7 +33,7 @@ _NAV_RE = re.compile(
     r"登录|注册|首页|下载APP|相关推荐|热门评论|版权所有|ICP备|"
     r"隐私政策|关于我们|导航|分享到|点击查看|打开APP"
 )
-_WS_RE = re.compile(r"\s+")
+_WS_RE = re.compile(r"\s+")  # 仅标题/单行字段使用
 _WSCN_ARTICLE_RE = re.compile(
     r"wallstreetcn\.com/(?:member/|premium/)?articles/(\d+)"
 )
@@ -81,10 +82,11 @@ def quality_score(text: str) -> float:
 
 
 def _clean(text: str) -> str:
+    """单行字段(标题)才压空白。正文走 html_to_text / normalize_paragraphs。"""
     return _WS_RE.sub(" ", (text or "").replace("\xa0", " ")).strip()
 
 
-def _xpath_text(doc, xpath: str) -> str:
+def _xpath_plain(doc, xpath: str) -> str:
     nodes = doc.xpath(xpath)
     if not nodes:
         return ""
@@ -97,36 +99,60 @@ def _xpath_text(doc, xpath: str) -> str:
     return _clean(" ".join(parts))
 
 
+def _xpath_body(doc, xpath: str) -> str:
+    nodes = doc.xpath(xpath)
+    if not nodes:
+        return ""
+    chunks = []
+    for n in nodes:
+        if hasattr(n, "itertext"):
+            try:
+                html = lhtml.tostring(n, encoding="unicode", method="html")
+            except Exception:
+                html = " ".join(n.itertext())
+            chunks.append(html_to_text(html))
+        else:
+            chunks.append(str(n))
+    return normalize_paragraphs("\n\n".join(c for c in chunks if c.strip()))
+
+
+def _xpath_text(doc, xpath: str) -> str:
+    """兼容旧名:默认当标题/单行抽。"""
+    return _xpath_plain(doc, xpath)
+
+
 def _extract_weixin(page: str) -> tuple[str | None, str]:
     doc = lhtml.fromstring(page)
-    title = _xpath_text(doc, '//*[@id="activity-name"]') or _xpath_text(doc, "//h1")
-    body = _xpath_text(doc, '//*[@id="js_content"]')
+    title = _xpath_plain(doc, '//*[@id="activity-name"]') or _xpath_plain(doc, "//h1")
+    body = _xpath_body(doc, '//*[@id="js_content"]')
     return (title or None, body)
 
 
 def _extract_zhihu(page: str) -> tuple[str | None, str]:
     doc = lhtml.fromstring(page)
     title = (
-        _xpath_text(doc, '//*[contains(@class,"Post-Title")]')
-        or _xpath_text(doc, '//*[contains(@class,"QuestionHeader-title")]')
-        or _xpath_text(doc, "//h1")
+        _xpath_plain(doc, '//*[contains(@class,"Post-Title")]')
+        or _xpath_plain(doc, '//*[contains(@class,"QuestionHeader-title")]')
+        or _xpath_plain(doc, "//h1")
     )
-    body = _xpath_text(doc, '//*[contains(@class,"Post-RichText")]')
+    body = _xpath_body(doc, '//*[contains(@class,"Post-RichText")]')
     if not body:
-        body = _xpath_text(doc, '//*[contains(@class,"RichContent-inner")]')
+        body = _xpath_body(doc, '//*[contains(@class,"RichContent-inner")]')
     if not body:
-        body = _xpath_text(doc, '//*[contains(@class,"QuestionAnswer-content")]')
+        body = _xpath_body(doc, '//*[contains(@class,"QuestionAnswer-content")]')
+    if body:
+        body = strip_zhihu_footer(body)
     return (title or None, body)
 
 
 def _extract_thepaper(page: str) -> tuple[str | None, str]:
     doc = lhtml.fromstring(page)
-    title = _xpath_text(doc, '//*[contains(@class,"index_title")]') or _xpath_text(
+    title = _xpath_plain(doc, '//*[contains(@class,"index_title")]') or _xpath_plain(
         doc, "//h1"
     )
-    body = _xpath_text(doc, '//*[contains(@class,"index_cententWrap")]')
+    body = _xpath_body(doc, '//*[contains(@class,"index_cententWrap")]')
     if not body:
-        body = _xpath_text(doc, '//*[contains(@class,"news_txt")]')
+        body = _xpath_body(doc, '//*[contains(@class,"news_txt")]')
     return (title or None, body)
 
 
@@ -167,7 +193,7 @@ def wallstreetcn_api_url(url: str) -> str | None:
 
 
 def _strip_tags(html: str) -> str:
-    return _clean(re.sub(r"<[^>]+>", " ", html or ""))
+    return html_to_text(html or "")
 
 
 def _parse_wallstreetcn_payload(data: dict) -> tuple[str | None, str]:
@@ -181,7 +207,7 @@ def _parse_wallstreetcn_payload(data: dict) -> tuple[str | None, str]:
     raw = payload.get("content") or payload.get("content_text") or ""
     if not isinstance(raw, str):
         raw = ""
-    body = _strip_tags(raw) if "<" in raw else _clean(raw)
+    body = _strip_tags(raw) if "<" in raw else normalize_paragraphs(raw)
     if isinstance(title, str):
         title = title.strip() or None
     else:
@@ -203,7 +229,7 @@ def _trafilatura(page: str, url: str) -> tuple[str | None, str, str | None]:
     meta = trafilatura.extract_metadata(page, default_url=url)
     title = getattr(meta, "title", None) if meta else None
     author = getattr(meta, "author", None) if meta else None
-    return title, _clean(text), author
+    return title, normalize_paragraphs(text), author
 
 
 def _apply_quality(
@@ -351,7 +377,7 @@ def _with_fallback(
     """HTML/API 失败时,用 RSS summary 顶上,避免报纸只剩标题。"""
     if result.ok or not fallback_text:
         return result
-    fb = _clean(fallback_text)
+    fb = normalize_paragraphs(fallback_text)
     if len(fb) < 80:
         return result
     prev = result.tier
@@ -445,6 +471,8 @@ def extract(
 
         result.title = title
         result.text = body or None
+        if "zhihu.com" in url and result.text:
+            result.text = strip_zhihu_footer(result.text)
         result.author = author
         result.extractor = extractor or "none"
         return _with_fallback(

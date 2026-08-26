@@ -9,6 +9,12 @@ from pathlib import Path
 from core.schema import Item, Kind
 from core.settings import load_feeds, load_settings
 from core.store import Store
+from core.text import (
+    display_title,
+    is_zhihu_activity_item,
+    item_published_at,
+    readable_body,
+)
 
 CST = timezone(timedelta(hours=8))
 _SLUG_RE = re.compile(r"[^\w\u4e00-\u9fff\-]+", re.UNICODE)
@@ -29,8 +35,8 @@ def _feed_weights(feeds: list[dict] | None = None) -> dict[str, float]:
 
 
 def item_body(it: Item) -> str:
-    """报纸上能印出来的文字:正文优先,否则摘要。"""
-    return ((it.content or it.summary or "")).strip()
+    """报纸上能印出来的文字:正文优先,否则摘要。视频没有转写则空。"""
+    return readable_body(it)
 
 
 def item_slug(it: Item, *, n: int | None = None) -> str:
@@ -88,14 +94,34 @@ def collect_subscription_items(
     unused_only: bool = False,
     max_per_collector: int = 5,
 ) -> list[Item]:
-    """取窗口内 RSS 条目。默认每源最多 5 条、有正文优先、源与源轮询。"""
+    """取窗口内 RSS 条目。默认每源最多 5 条、有正文优先、源与源轮询。
+
+    窗口看刊出时间(published_at),不是抓取时间,避免旧稿因未读积压混进今天。
+    视频没有转写,不占订阅版位。知乎赞同/动态也不进报。
+    """
     names = collector_names if collector_names is not None else _rss_collector_names()
-    since = datetime.now(timezone.utc) - timedelta(hours=window_hours)
-    items = store.query_items(since=since, unused_only=unused_only, limit=5000)
-    items = [it for it in items if it.collector in names]
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(hours=window_hours)
+    fetch_since = now - timedelta(hours=max(window_hours, 72))
+    items = store.query_items(since=fetch_since, unused_only=unused_only, limit=5000)
+    kept: list[Item] = []
+    for it in items:
+        if it.collector not in names:
+            continue
+        if it.kind == Kind.VIDEO:
+            continue
+        if is_zhihu_activity_item(it):
+            continue
+        t = item_published_at(it)
+        if t is not None:
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            if t < cutoff:
+                continue
+        kept.append(it)
     weights = _feed_weights() if collector_names is None else None
     return _round_robin(
-        items,
+        kept,
         limit=limit,
         max_per_collector=max_per_collector,
         weights=weights,
@@ -109,21 +135,34 @@ def _fmt_when(it: Item) -> str:
     return t.astimezone(CST).strftime("%Y-%m-%d %H:%M CST")
 
 
-def render_item_md(it: Item, *, heading_level: int = 2) -> str:
+def render_item_md(
+    it: Item,
+    *,
+    heading_level: int = 2,
+    already: str | None = None,
+) -> str:
     """单篇离线可读稿。链接只作为附注明文,不充当正文。"""
     hashes = "#" * heading_level
     kind = it.kind.value if isinstance(it.kind, Kind) else str(it.kind)
+    title = display_title(it)
     body = item_body(it)
     lines = [
-        f"{hashes} {it.title}",
+        f"{hashes} {title}",
         "",
         f"> {it.source.value} · {it.author or it.collector} · {_fmt_when(it)} · `{it.collector}`",
         "",
     ]
-    if kind == "video":
-        lines.append("**【视频】** 画面印不出来。下面是简介/标题党之外还能读到的文字。")
+    if already:
+        lines.append(f"_{already}，此处不重复全文。_")
         lines.append("")
-    if body:
+        if it.url and it.url.startswith("http"):
+            lines.append(f"原文地址(需上网,纸上看不到点): `{it.url}`")
+            lines.append("")
+        return "\n".join(lines)
+    if kind == "video":
+        lines.append("_视频暂不转写，只保留标题和链接。_")
+        lines.append("")
+    elif body:
         lines.append(body)
         lines.append("")
     else:
@@ -141,16 +180,18 @@ def render_subscriptions_md(
     title: str = "订阅更新",
     window_hours: int = 48,
     feeds: list[dict] | None = None,
+    already: dict[str, str] | None = None,
 ) -> str:
     now = datetime.now(CST).strftime("%Y-%m-%d %H:%M CST")
     feed_rows = feeds if feeds is not None else load_feeds()
-    with_body = sum(1 for it in items if item_body(it))
+    already = already or {}
+    with_body = sum(1 for it in items if item_body(it) and it.content_hash not in already)
     lines = [
         f"# {title}",
         "",
-        f"> 统计窗口:过去 {window_hours} 小时 · 生成于 {now}",
-        f"> 订阅源 {len(feed_rows)} · 本页 {len(items)} 条 · 其中 {with_body} 条有正文/简介",
-        f"> 每源最多 5 条轮询,避免单一榜单占满版面。正文写在下面,不是「打开」链接。",
+        f"> 统计窗口:过去 {window_hours} 小时(按刊出时间) · 生成于 {now}",
+        f"> 订阅源 {len(feed_rows)} · 本页 {len(items)} 条 · 其中 {with_body} 条有正文",
+        f"> 每源最多 5 条轮询。头版/深度已选中的只留目录,不重复全文。视频不进这版。",
         "",
     ]
     if feed_rows:
@@ -172,14 +213,25 @@ def render_subscriptions_md(
     lines.append("## 目录")
     lines.append("")
     for i, it in enumerate(items, start=1):
-        flag = "有正文" if item_body(it) else ("视频简介" if it.kind == Kind.VIDEO else "无正文")
-        lines.append(f"{i}. {it.title} · {it.source.value} · {flag}")
+        if it.content_hash in already:
+            flag = already[it.content_hash]
+        elif item_body(it):
+            flag = "有正文"
+        else:
+            flag = "无正文"
+        lines.append(f"{i}. {display_title(it)} · {it.source.value} · {flag}")
     lines.append("")
     lines.append("---")
     lines.append("")
 
-    for i, it in enumerate(items, start=1):
-        lines.append(render_item_md(it, heading_level=2).rstrip())
+    for it in items:
+        lines.append(
+            render_item_md(
+                it,
+                heading_level=2,
+                already=already.get(it.content_hash),
+            ).rstrip()
+        )
         lines.append("")
         lines.append("---")
         lines.append("")

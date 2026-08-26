@@ -104,7 +104,7 @@ uv run main.py render --section subscriptions
 
 ## 知乎订阅(机构号 / 个人号)
 
-- **指定作者**: `zhihu/people/activities/{id}` 与 `zhihu/people/answers/{id}`(Thoughts Memo、差评君)。
+- **指定作者**:只订 `zhihu/people/answers/{id}`(Thoughts Memo、差评君)。不订 `activities`,避免把「赞同了回答」灌进报纸。
 - **知乎日报机构号**: `zhihu/posts/org/zhi-hu-ri-bao-51-41`,主页 `https://www.zhihu.com/org/zhi-hu-ri-bao-51-41`。配置了 `title_regex: 早报`(匹配标题里的「｜早报 YYYYMMDD」,以及正文「嘿，这里是知乎早报」),「瞎扯」等其它帖丢掉。
 - **知乎周刊**已停更,不再订 `/zhihu/weekly`。
 - **热榜问题**仍走 DailyHot,不在 RSS 里扒回答;以后点名再拉高赞回答。

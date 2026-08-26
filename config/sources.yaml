@@ -23,21 +23,12 @@ hotlists:
 # 知乎周刊已停更,不再订阅。热榜问题不在这里扒回答,点名后再拉。
 feeds:
   # —— 知乎 ——
-  - name: "Thoughts Memo 动态"
-    url: "{rsshub}/zhihu/people/activities/L.M.Sherlock"
-    source: zhihu
-    kind: article
-    weight: 2.0
+  # 只订「回答」,不订动态时间线。activities 会把「赞同了回答」灌进来。
   - name: "Thoughts Memo 回答"
     url: "{rsshub}/zhihu/people/answers/L.M.Sherlock"
     source: zhihu
     kind: article
     weight: 2.0
-  - name: "差评君 动态"
-    url: "{rsshub}/zhihu/people/activities/chai-ping-jun-80"
-    source: zhihu
-    kind: article
-    weight: 1.8
   - name: "差评君 回答"
     url: "{rsshub}/zhihu/people/answers/chai-ping-jun-80"
     source: zhihu

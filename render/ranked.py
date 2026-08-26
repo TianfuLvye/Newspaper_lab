@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core.schema import Kind
-from render.subscriptions import item_body
+from core.text import display_title, readable_body
 
 CST = timezone(timedelta(hours=8))
 
@@ -60,15 +60,15 @@ def render_ranked_section(
     n = start_n
     for ri in rows:
         it = ri.item
-        lines.append(f"## F{n:02d} · {it.title}")
+        lines.append(f"## F{n:02d} · {display_title(it)}")
         lines.append("")
         lines.append(f"> {_score_line(ri)}")
         if ri.critic and ri.critic.angle:
             lines.append(f"> 挑战了: {ri.critic.angle} — {ri.critic.reason}")
         lines.append("")
-        body = item_body(it)
+        body = readable_body(it)
         if it.kind == Kind.VIDEO:
-            lines.append("**【视频】** 下面是能印出来的简介。")
+            lines.append("_视频暂不转写。_")
             lines.append("")
         if body:
             lines.append(body)

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import tempfile
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from collectors.rss_generic import (
@@ -46,7 +46,8 @@ def _rsshub_up() -> bool:
 def test_slugify_and_helpers():
     check("slugify ascii", slugify("Hello World") == "hello_world")
     check("slugify zh", slugify("泛式 投稿").startswith("泛式"))
-    check("strip_html", _strip_html("<p>a<br/>b</p>") == "a b")
+    check("strip_html keeps paragraphs", _strip_html("<p>a<br/>b</p>") == "a\n\nb")
+    check("strip_html title is single line", _strip_html("<p>a<br/>b</p>", single_line=True) == "a b")
     entry = {
         "content": [{"value": "<p>" + ("长正文" * 40) + "</p>"}],
         "summary": "短",
@@ -265,6 +266,138 @@ def test_live_rsshub_smoke():
     )
 
 
+def test_text_cleanup_and_filters():
+    from core.text import (
+        display_title,
+        expand_zhihu_daily_title,
+        html_to_text,
+        is_zhihu_skip_title,
+        readable_body,
+        strip_zhihu_footer,
+    )
+
+    check("html paragraphs", html_to_text("<p>第一段</p><p>第二段</p>") == "第一段\n\n第二段")
+    junk = (
+        "正经正文到此结束。 author: cantcatchme@thoughtsmemo 相关文章 "
+        "如何显得（并真正做到）深刻 「狭隘」也是一种美德"
+    )
+    check("zhihu footer stripped", strip_zhihu_footer(junk) == "正经正文到此结束。")
+    check("skip 赞同了回答", is_zhihu_skip_title("Thoughts Memo赞同了回答: 如何记忆日语"))
+    check("keep 回答了问题", not is_zhihu_skip_title("Thoughts Memo回答了问题: 嘉豪梗"))
+    daily_body = (
+        "嘿，这里是知乎早报！ 热点速递｜BREAKING NEWS "
+        "1、 深圳大学拟拿出5.3亿元买宿舍，背后有哪些考量？ 背景：近日采购意向。"
+        "2、 「人民艺术家」郭兰英逝世，她的哪些作品令你印象深刻？ 背景：讣告。"
+        "小李精选｜XIAOLI’S PICKS 1、 为什么南极洲看起来那么大？"
+    )
+    full = expand_zhihu_daily_title("深圳大学拟 5.3 亿元…", daily_body)
+    check("daily title expanded", "深圳大学" in full and "郭兰英" in full, full)
+    check("daily title skips 小李精选", "南极洲" not in full, full)
+
+    it = Item(
+        Source.ZHIHU,
+        Kind.ARTICLE,
+        "Thoughts Memo赞同了回答: 拟声词",
+        "https://www.zhihu.com/question/1/answer/1",
+        content=junk,
+        collector="rss_thoughts_memo_动态",
+    )
+    check("readable_body drops footer", "相关文章" not in readable_body(it))
+
+    daily = Item(
+        Source.ZHIHU,
+        Kind.ARTICLE,
+        "深圳大学拟 5.3 亿元买整栋商品房当学生宿舍；《影之刃零》开启预售…",
+        "https://zhuanlan.zhihu.com/p/1",
+        content=daily_body,
+        collector="rss_知乎日报_早报",
+    )
+    check("display_title prints daily full", "郭兰英" in display_title(daily), display_title(daily))
+
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+    <rss version="2.0">
+      <channel>
+        <title>t</title>
+        <item>
+          <title>Thoughts Memo赞同了回答: 不该入库</title>
+          <link>https://www.zhihu.com/question/1/answer/1</link>
+          <description>someone else's answer</description>
+        </item>
+        <item>
+          <title>Thoughts Memo回答了问题: 该留</title>
+          <link>https://www.zhihu.com/question/2/answer/2</link>
+          <description><![CDATA[<p>第一段</p><p>author: x@y 相关文章 垃圾推荐</p>]]></description>
+        </item>
+      </channel>
+    </rss>
+    """
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "zhihu.xml"
+        path.write_text(xml, encoding="utf-8")
+        cfg = {
+            "name": "Thoughts Memo 回答",
+            "url": path.as_uri(),
+            "source": "zhihu",
+            "kind": "article",
+        }
+        items = list(RSSCollector(cfg).collect())
+        check("drops 赞同了", len(items) == 1, str([i.title for i in items]))
+        check("keeps 回答了", "该留" in items[0].title)
+        check("rss footer stripped", "相关文章" not in (items[0].content or items[0].summary or ""))
+
+    now = datetime.now(timezone.utc)
+    with tempfile.TemporaryDirectory() as td:
+        store = Store(Path(td) / "t.db")
+        try:
+            old = Item(
+                Source.ZHIHU, Kind.ARTICLE, "十三天前的早报",
+                "https://zhuanlan.zhihu.com/p/old",
+                content="嘿，这里是知乎早报！" * 5,
+                collector="rss_知乎日报_早报",
+                published_at=now - timedelta(days=13),
+                fetched_at=now,
+            )
+            video = Item(
+                Source.BILIBILI, Kind.VIDEO, "塔菲吐槽",
+                "https://www.bilibili.com/video/BV1",
+                content="一堆相关推荐标题",
+                collector="rss_好柿花生_投稿",
+                published_at=now,
+                fetched_at=now,
+            )
+            fresh = Item(
+                Source.ZHIHU, Kind.ARTICLE, "今天的回答",
+                "https://www.zhihu.com/question/9/answer/9",
+                content="今天写的正经回答。" * 8,
+                collector="rss_thoughts_memo_回答",
+                published_at=now,
+                fetched_at=now,
+            )
+            store.upsert_items([old, video, fresh])
+            got = collect_subscription_items(
+                store,
+                window_hours=48,
+                collector_names={
+                    "rss_知乎日报_早报",
+                    "rss_好柿花生_投稿",
+                    "rss_thoughts_memo_回答",
+                },
+            )
+            titles = [i.title for i in got]
+            check("drops stale daily", "十三天前的早报" not in titles, str(titles))
+            check("drops video", "塔菲吐槽" not in titles, str(titles))
+            check("keeps fresh answer", "今天的回答" in titles, str(titles))
+            md = render_subscriptions_md(
+                got,
+                feeds=[{"name": "Thoughts Memo 回答", "url": "x", "source": "zhihu"}],
+                already={fresh.content_hash: "已上头版 F02"},
+            )
+            check("subscribe pointer", "已上头版 F02" in md)
+            check("no duplicate body when already ranked", md.count("今天写的正经回答") == 0)
+        finally:
+            store.close()
+
+
 def test_title_regex_keeps_zaobao_only():
     xml = """<?xml version="1.0" encoding="utf-8"?>
     <rss version="2.0">
@@ -313,6 +446,7 @@ def main():
     test_rss_collector_local_feed()
     test_title_regex_keeps_zaobao_only()
     test_subscriptions_render()
+    test_text_cleanup_and_filters()
     test_lab34_wechat_adr()
     test_live_rsshub_smoke()
     print("All Lab 3 checks passed (live probes may have been skipped).")

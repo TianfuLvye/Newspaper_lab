@@ -9,16 +9,13 @@ import re
 import time
 from calendar import timegm
 from datetime import datetime, timezone
-from html import unescape
 from typing import Any
 
 import feedparser
 
 from core.base import BaseCollector
 from core.schema import Item, Kind, Source
-
-_TAG_RE = re.compile(r"<[^>]+>")
-_WS_RE = re.compile(r"\s+")
+from core.text import html_to_text, is_zhihu_skip_title, strip_zhihu_footer
 
 
 def slugify(name: str) -> str:
@@ -29,9 +26,9 @@ def slugify(name: str) -> str:
     return s or "unnamed"
 
 
-def _strip_html(html: str) -> str:
-    text = unescape(_TAG_RE.sub(" ", html or ""))
-    return _WS_RE.sub(" ", text).strip()
+def _strip_html(html: str, *, single_line: bool = False) -> str:
+    """兼容旧名。正文保留段落;标题才压成一行。"""
+    return html_to_text(html or "", single_line=single_line)
 
 
 def _extract_content(entry: dict) -> str | None:
@@ -122,11 +119,15 @@ class RSSCollector(BaseCollector):
         fallback_author = self.cfg["name"]
 
         for e in feed.entries:
-            title = (e.get("title") or "").strip()
+            title = html_to_text(e.get("title") or "", single_line=True)
             link = (e.get("link") or "").strip()
             if not title and not link:
                 continue
+            if source == Source.ZHIHU and is_zhihu_skip_title(title):
+                continue
             summary_full = _strip_html(e.get("summary", "") or e.get("description", ""))
+            if source == Source.ZHIHU:
+                summary_full = strip_zhihu_footer(summary_full)
             if self._title_re is not None:
                 blob = f"{title}\n{summary_full}"
                 if not self._title_re.search(blob):
@@ -136,6 +137,8 @@ class RSSCollector(BaseCollector):
             # RSSHub 快讯往往只有 summary、没有 content:encoded;别把全文截成 500 字后丢掉。
             if not content and len(summary_full) >= 80:
                 content = summary_full
+            if source == Source.ZHIHU and content:
+                content = strip_zhihu_footer(content)
             tags = []
             for t in e.get("tags") or []:
                 term = t.get("term") if isinstance(t, dict) else getattr(t, "term", None)

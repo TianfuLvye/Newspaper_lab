@@ -127,23 +127,31 @@ def _run_hotlist(store: Store, boards: list[str], skip: set[str] | None = None) 
 
 
 def _run_subscriptions(
-    store: Store, collector_names: set[str] | None, skip: set[str] | None = None
+    store: Store,
+    collector_names: set[str] | None,
+    skip: set[str] | None = None,
+    already: dict[str, str] | None = None,
 ) -> SectionResult:
     items = collect_subscription_items(
         store,
-        window_hours=168,
+        window_hours=48,
         limit=24,
         collector_names=collector_names,
         unused_only=True,
         max_per_collector=4,
     )
-    items = _drop_hashes(items, skip or set())
-    md = render_subscriptions_md(items, window_hours=168)
+    # 头版抢走的条目仍留在订阅目录里,只是不重复印全文。
+    md = render_subscriptions_md(items, window_hours=48, already=already)
+    hashes = [
+        it.content_hash
+        for it in items
+        if it.content_hash not in (skip or set())
+    ]
     return SectionResult(
         name="subscriptions",
         filename="06_subscribe.md",
         markdown=md,
-        hashes=[it.content_hash for it in items],
+        hashes=hashes,
         has_content=bool(items),
         items=items,
     )
@@ -230,14 +238,20 @@ def produce_edition(
     health_report: HealthReport | None = None
     ranked_skip: set[str] = set()
     rank_result = None
+    already_ranked: dict[str, str] = {}
 
     elapsed = time.monotonic() - t0
     if elapsed < deadline:
         try:
             ranked_secs, rank_result = _run_ranked(store, kind, eid)
             sections.extend(ranked_secs)
+            cn = {"headline": "头版", "deepread": "深度阅读", "critical": "今日一问"}
+            n = 0
             for sec in ranked_secs:
                 ranked_skip.update(sec.hashes)
+                for it in sec.items or []:
+                    n += 1
+                    already_ranked[it.content_hash] = f"已上{cn.get(sec.name, sec.name)} F{n:02d}"
         except Exception as e:
             err = repr(e)
             log.warning("[%s] ranked sections failed: %s", eid, err)
@@ -258,7 +272,7 @@ def produce_edition(
         ("hotlist", "热榜速览", "02_hotlist.md",
          lambda: _run_hotlist(store, board_names, ranked_skip)),
         ("subscriptions", "订阅更新", "06_subscribe.md",
-         lambda: _run_subscriptions(store, rss_collectors, ranked_skip)),
+         lambda: _run_subscriptions(store, rss_collectors, ranked_skip, already_ranked)),
     ]
 
     for name, title, fname, fn in content_jobs:

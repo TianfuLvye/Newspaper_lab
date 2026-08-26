@@ -15,6 +15,7 @@ import numpy as np
 
 from core.schema import Item, Kind, Source
 from core.store import Store
+from core.text import display_title, is_zhihu_activity_item, item_published_at, readable_body
 from pipeline.critic import Critic, CriticResult
 from pipeline.dedup import fold_events
 from pipeline.golden import FittedTaste, get_or_fit_taste
@@ -34,7 +35,7 @@ CRITICAL_N = 3
 EXPLORE_RATIO = 0.15
 MIN_SCORE = 0.12
 MIN_BODY = 80
-SCORE_KINDS = (Kind.ARTICLE, Kind.POST, Kind.VIDEO)
+SCORE_KINDS = (Kind.ARTICLE, Kind.POST)
 # 热榜平台的标题流不许进个性化版。热度再高也只该待在 02_hotlist。
 HOTLIST_SOURCES = {Source.TOUTIAO, Source.DOUYIN, Source.WEIBO, Source.THEPAPER}
 
@@ -51,17 +52,17 @@ def item_hot(it: Item) -> float:
 
 
 def has_readable_body(it: Item) -> bool:
-    body = (it.content or it.summary or "").strip()
-    if it.kind == Kind.VIDEO:
-        return bool(body or it.title)
+    body = readable_body(it)
     return len(body) >= MIN_BODY
 
 
 def is_rank_candidate(it: Item) -> bool:
-    """个性化打分只看订阅/长文/视频,不看热榜八卦标题。"""
-    if it.kind == Kind.HOTLIST:
+    """个性化打分只看订阅长文,不看热榜八卦、B站视频、知乎赞同动态。"""
+    if it.kind == Kind.HOTLIST or it.kind == Kind.VIDEO:
         return False
-    if it.source in HOTLIST_SOURCES:
+    if it.source in HOTLIST_SOURCES or it.source == Source.BILIBILI:
+        return False
+    if is_zhihu_activity_item(it):
         return False
     if it.kind not in SCORE_KINDS:
         return False
@@ -76,7 +77,7 @@ def item_age_hours(it: Item, now: datetime) -> float:
 
 
 def item_body(it: Item) -> str:
-    return (it.content or it.summary or "") or ""
+    return readable_body(it)
 
 
 @dataclass
@@ -276,13 +277,24 @@ def collect_rank_candidates(
     limit: int = 3000,
 ) -> list[Item]:
     since = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    fetch_since = datetime.now(timezone.utc) - timedelta(hours=max(window_hours, 72))
     items = store.query_items(
-        since=since,
+        since=fetch_since,
         kinds=list(SCORE_KINDS),
         unused_only=unused_only,
         limit=limit,
     )
-    return [it for it in items if is_rank_candidate(it)]
+    out = []
+    for it in items:
+        t = item_published_at(it)
+        if t is not None:
+            if t.tzinfo is None:
+                t = t.replace(tzinfo=timezone.utc)
+            if t < since:
+                continue
+        if is_rank_candidate(it):
+            out.append(it)
+    return out
 
 
 def rank_for_edition(
@@ -314,7 +326,7 @@ def ranking_manifest(result: RankResult) -> dict:
                     "n": n,
                     "section": section,
                     "hash": ri.item.content_hash,
-                    "title": ri.item.title,
+                    "title": display_title(ri.item),
                     "score": ri.total,
                 }
             )

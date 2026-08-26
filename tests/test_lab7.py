@@ -18,7 +18,7 @@ from pipeline.dedup import cluster_by_embedding, fold_events, hamming, simhash
 from pipeline.embed import TfidfEmbedder
 from pipeline.golden import fit_taste, load_golden
 from pipeline.golden_seed import SEED
-from pipeline.rank import heat_only_order, rank_items
+from pipeline.rank import heat_only_order, is_rank_candidate, rank_items
 from pipeline.edition import produce_edition
 
 PASS = FAIL = 0
@@ -107,6 +107,10 @@ check(
     "个性化版没有热榜标题",
     all(ri.item.kind != Kind.HOTLIST for ri in result.headline + result.deepread + result.critical),
 )
+vid = Item(Source.BILIBILI, Kind.VIDEO, "塔菲视频", "https://bilibili.com/v/1", content="相关推荐墙" * 20)
+act = Item(Source.ZHIHU, Kind.ARTICLE, "Thoughts Memo赞同了回答: x", "https://zhihu.com/a/1", content="正经回答" * 40, collector="rss_thoughts_memo_动态")
+check("视频不进打分", is_rank_candidate(vid) is False)
+check("赞同动态不进打分", is_rank_candidate(act) is False)
 
 
 print("\n[Lab 7] 事件聚类:改写稿被折叠(SimHash 抓不到,L3 要抓到)")
