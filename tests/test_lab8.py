@@ -276,6 +276,20 @@ check(
     inside.cells.c == 0 and inside.cells.w == 1 and inside.cells.h >= 10,
     str(inside.cells),
 )
+check(
+    "目录标题印全文且缀粗体字数",
+    all(t[1] in html for t in inside.teasers)
+    and all(f'<b class="wc">{t[3]} 字</b>' in html for t in inside.teasers if t[3]),
+)
+_n_arts = len(
+    {
+        b.article_id
+        for p in news.layout.pages
+        for b in p.blocks
+        if b.chunk and b.kind not in ("masthead", "folio", "inside")
+    }
+)
+check("目录条目覆盖全部稿件", len(inside.teasers) == _n_arts, f"{len(inside.teasers)}/{_n_arts}")
 check("稿件之间有细线", "rule-v" in html or "rule-h" in html)
 check("正文按段落输出", "<p>" in html)
 check("CSS 分栏从左填满", "column-fill: auto" in html)

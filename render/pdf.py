@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 
 from reportlab.lib.colors import Color, HexColor, white
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from render.fonts import register_pdf_fonts
@@ -198,32 +199,53 @@ def _draw_inside(
         fill=0,
         stroke=1,
     )
-    items = block.teasers or [("内页", "本期其余稿件见后续版面", 2)]
+    items = block.teasers or [("内页", "本期其余稿件见后续版面", 2, 0)]
     n_cols = 3 if r.w > 160 else 1
     col_w = r.w / n_cols
     body = MmRect(r.x, r.y + bar_h, r.w, max(4.0, r.h - bar_h))
-    per_col = max(1, (len(items) + n_cols - 1) // n_cols)
-    # 目录栏按栏高拉开行距,竖栏不再前几条挤成一团、后半截空着
-    step = max(10.2, min(16.0, (body.h - 4.2) / max(1, per_col)))
-    t_lim = 14 if rail else 18
-    for i, (kicker, title, page_no) in enumerate(items):
-        col = i // per_col
-        row = i % per_col
-        if col >= n_cols:
-            break
-        x = body.x + col * col_w
-        y = body.y + 4.2 + row * step
-        if y > r.bottom - 3:
-            continue
+    # 题面印全文:按真实折行逐条下排,一栏装满换下一栏;
+    # 字数用粗体缀在标题末尾,行尾不够宽就单独起一行。
+    text_w = col_w - 4.4
+    col_i, y = 0, body.y + 3.6
+    for kicker, title, page_no, n_chars in items:
+        label = f"{n_chars} 字" if n_chars else ""
+        lines = wrap_text(title or " ", text_w, 7.0) or [""]
+        extra = 0
+        if label and stringWidth(lines[-1] + " ", body_font, 7.0) + stringWidth(
+            label, title_font, 7.0
+        ) > mm_to_pt(text_w):
+            extra = 1
+        item_h = 3.3 + 3.3 * (len(lines) + extra) + 1.6
+        if y + item_h > r.bottom - 2.0:
+            col_i += 1
+            if col_i >= n_cols:
+                break
+            y = body.y + 3.6
+        x = body.x + col_i * col_w + 2.0
         c.setFont(body_font, 6.0)
         c.setFillColor(MUTED)
-        c.drawString(mm_to_pt(x + 2.0), _y(page_h_pt, y), kicker[:8])
+        c.drawString(mm_to_pt(x), _y(page_h_pt, y), kicker[:8])
+        c.setFont(body_font, 6.6)
+        c.drawRightString(mm_to_pt(x + text_w), _y(page_h_pt, y), str(page_no))
         c.setFillColor(INK)
-        c.setFont(title_font, 7.2)
-        short = title[:t_lim] + ("…" if len(title) > t_lim else "")
-        c.drawString(mm_to_pt(x + 2.0), _y(page_h_pt, y + 3.6), short)
-        c.setFont(body_font, 7.0)
-        c.drawRightString(mm_to_pt(x + col_w - 2.2), _y(page_h_pt, y + 3.6), f"{page_no}")
+        ty = y + 3.3
+        for j, ln in enumerate(lines):
+            c.setFont(body_font, 7.0)
+            c.drawString(mm_to_pt(x), _y(page_h_pt, ty), ln)
+            ty += 3.3
+        if label:
+            if extra:
+                c.setFont(title_font, 7.0)
+                c.drawString(mm_to_pt(x), _y(page_h_pt, ty), label)
+            else:
+                c.setFont(title_font, 7.0)
+                c.drawString(
+                    mm_to_pt(x) + stringWidth(lines[-1] + " ", body_font, 7.0),
+                    _y(page_h_pt, ty - 3.3),
+                    label,
+                )
+            ty += 3.3 * extra
+        y = ty + 1.6
 
 
 def _draw_article(

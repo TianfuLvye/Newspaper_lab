@@ -655,23 +655,38 @@ def _fill_inside(pages: list[PageLayout]) -> None:
     """用内页标题+页码填头版 Inside。"""
     if not pages:
         return
-    first: dict[str, tuple[int, str, str]] = {}
+    first: dict[str, tuple[int, str, str, int]] = {}
     for p in pages:
         for b in p.blocks:
             if b.chunk is None or b.kind in ("masthead", "folio", "inside"):
                 continue
             if b.article_id not in first:
-                title = b.chunk.article.title
-                kicker = b.chunk.article.kicker or b.section
-                first[b.article_id] = (b.page, kicker, title)
-    # 目录栏登的是「本期全部稿件的首发页码」(含头版稿,页码标 1),
+                art = b.chunk.article
+                title = art.title
+                kicker = art.kicker or b.section
+                # 字数按整稿正文去空白统计:目录要给读者一个「这篇有多长」的预期
+                n_chars = len("".join((art.body or "").split()))
+                first[b.article_id] = (b.page, kicker, title, n_chars)
+    # 目录栏登的是「本期全部稿件的首发页码+全文字数」(含头版稿,页码标 1),
     # 按版面顺序从上到下读;不是原来那种只指内页的 INSIDE 横条。
-    teasers: list[tuple[str, str, int]] = []
-    for _aid, (pg, kicker, title) in first.items():
-        teasers.append((kicker, title, pg + 1))
+    teasers: list[tuple[str, str, int, int]] = []
+    for _aid, (pg, kicker, title, n_chars) in first.items():
+        teasers.append((kicker, title, pg + 1, n_chars))
     for b in pages[0].blocks:
         if b.kind == "inside":
-            # 竖栏目录比横条高得多:按栏高放量,稿件尽量都上榜
-            fit = max(7, int((b.mm.h - 8.0) / 12.0))
-            b.teasers = teasers[:fit]
+            # 目录题印全文+字数,条目高度按真实折行累计:栏装满为止,
+            # 绝不再拿固定 18 字刀锯题面。
+            inner_w = max(20.0, b.mm.w - 4.4)
+            y = 7.0  # 黑条 5.4 + 栏顶留白 1.6
+            picked: list[tuple[str, str, int, int]] = []
+            for t in teasers:
+                _kicker, title, _pg, n_chars = t
+                label = f"{title} {n_chars} 字" if n_chars else title
+                n_lines = max(1, len(wrap_text(label or " ", inner_w, 7.0)))
+                item_h = 3.2 + n_lines * line_height_mm(7.0, 1.42) + 1.7
+                if picked and y + item_h > b.mm.h - 2.0:
+                    break
+                picked.append(t)
+                y += item_h
+            b.teasers = picked
             break

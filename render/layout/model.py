@@ -81,7 +81,7 @@ class PlacedBlock:
     section: str = ""
     article_id: str = ""
     n_text_cols: int = 1
-    teasers: list[tuple[str, str, int]] = field(default_factory=list)
+    teasers: list[tuple[str, str, int, int]] = field(default_factory=list)
 
 
 @dataclass
