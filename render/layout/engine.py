@@ -11,13 +11,17 @@ from render.layout.measure import (
     cells_for_height,
     chars_that_fit,
     column_count,
+    column_rects,
     estimate_title_height_mm,
+    line_height_mm,
     split_body,
     text_height_mm,
     title_size,
+    wrap_text,
 )
 from render.layout.model import Article, Chunk, LayoutResult, PageLayout, PlacedBlock
 from render.layout.pack import MaxRects, no_overlaps
+from render.markup import strip_inline_md
 
 
 SECTION_ORDER_AM = [
@@ -67,6 +71,7 @@ def candidate_shapes(
     max_w: int,
     max_h: int,
     prefer: str,
+    min_h: int = 3,
 ) -> list[tuple[int, int]]:
     seen: set[tuple[int, int]] = set()
     out: list[tuple[int, int]] = []
@@ -94,13 +99,14 @@ def candidate_shapes(
     else:
         widths = [3, 2, 4, 5, 6, 1]
 
+    floor = max(2, min_h)
     for w in widths:
-        h = max(3, math.ceil(area / max(w, 1)))
+        h = max(floor, math.ceil(area / max(w, 1)))
         add(w, h)
         add(w, h + 1)
         add(w, h + 2)
-        add(w, max(3, h - 1))
-    add(max_w, min(max_h, max(3, math.ceil(area / max_w))))
+        add(w, max(floor, h - 1))
+    add(max_w, min(max_h, max(floor, math.ceil(area / max(max_w, 1)))))
     add(min(max_w, 2), min(max_h, 8))
     return out
 
@@ -311,8 +317,12 @@ def _try_place(
     prefer = prefer_for(chunk.article.section, chunk.part)
     cap_w, cap_h = first_chunk_cap(chunk, max_h, geom.cols)
     area = min(area, cap_w * cap_h)
-    shapes = candidate_shapes(area, max_w=cap_w, max_h=cap_h, prefer=prefer)
     min_w, min_h = (2, 4) if chunk.article.role == "index" else (2, 3)
+    if chunk.part > 0:
+        min_h = 2
+    shapes = candidate_shapes(
+        area, max_w=cap_w, max_h=cap_h, prefer=prefer, min_h=min_h
+    )
     if chunk.article.empty:
         min_w, min_h = 2, 2
         shapes = [(min(6, cap_w), 2), (3, 2), (2, 2)] + shapes
@@ -344,6 +354,9 @@ def _grow_into_holes(
         guard += 1
         changed = False
         for att in attempts:
+            # 已经装完的短稿再拉高,只会把几句话均摊进六栏。热榜还能多印几条。
+            if att.rest is None and att.block.kind != "index":
+                continue
             cell = att.block.cells
             grew: CellRect | None = None
             if packer.region_free(cell.c + cell.w, cell.r, 1, cell.h):
@@ -403,6 +416,22 @@ def _materialize(
     head, tail = split_body(chunk.body, n_fit)
     if tail and len(tail) < 48:
         head, tail = chunk.body, ""
+
+    if text_rect and head:
+        cols = column_rects(text_rect, n_cols)
+        col_w = cols[0].w
+        n_lines = len(wrap_text(strip_inline_md(head), col_w, types.body_pt))
+        per = max(1, int(fit_h / line_height_mm(types.body_pt, types.line_ratio)))
+        n_need = max(1, math.ceil(n_lines / per)) if n_lines else 1
+        if n_need < n_cols:
+            n_cols = n_need
+            used = cols[:n_cols]
+            text_rect = MmRect(
+                used[0].x,
+                used[0].y,
+                used[-1].right - used[0].x,
+                used[0].h,
+            )
 
     truncated = False
     rest: Chunk | None = None

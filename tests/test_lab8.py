@@ -273,6 +273,8 @@ inside = next(b for b in news.layout.pages[0].blocks if b.kind == "inside")
 check("Inside 是通栏横条", inside.cells.w == 6 and inside.cells.r >= 12, str(inside.cells))
 check("稿件之间有细线", "rule-v" in html or "rule-h" in html)
 check("正文按段落输出", "<p>" in html)
+check("CSS 分栏从左填满", "column-fill: auto" in html)
+check("热榜加粗不是星号", "<strong>甲事件</strong>" in html and "**甲事件**" not in html)
 skinny = [
     (b.article_id, b.cells.w)
     for p in news.layout.pages

@@ -18,6 +18,7 @@ from render.layout.measure import (
     wrap_text,
 )
 from render.layout.model import LayoutResult, PageLayout, PlacedBlock
+from render.markup import strip_inline_md
 
 INK = HexColor("#111111")
 MUTED = HexColor("#444444")
@@ -326,7 +327,7 @@ def _draw_columns(
 ) -> None:
     cols = column_rects(rect, max(1, n_cols))
     col_w = cols[0].w
-    lines = wrap_text(text, col_w, size_pt)
+    lines = wrap_text(strip_inline_md(text), col_w, size_pt)
     lh = line_height_mm(size_pt, line_ratio)
     per = max(1, int(rect.h / lh))
     idx = 0

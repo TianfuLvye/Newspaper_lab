@@ -7,6 +7,7 @@ from pathlib import Path
 from render.layout.grid import MmRect
 from render.layout.measure import TypeSpec, title_size
 from render.layout.model import LayoutResult, PageLayout, PlacedBlock
+from render.markup import inline_md_to_html
 
 
 def write_html(layout: LayoutResult, path: Path) -> Path:
@@ -42,6 +43,7 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
     font-size: 8.15pt; line-height: 1.30; position: absolute;
     text-align: justify; hyphens: auto; overflow: hidden;
     column-gap: 2.2mm; column-rule: 0.15mm solid #222;
+    column-fill: auto; -webkit-column-fill: auto;
   }}
   .body p {{ margin: 0 0 0.55em; text-align: justify; }}
   .body p:last-child {{ margin-bottom: 0; }}
@@ -239,7 +241,7 @@ def _body_html(text: str) -> str:
     for p in paras:
         if not p:
             continue
-        bits.append("<p>" + html.escape(p).replace("\n", "<br/>") + "</p>")
+        bits.append("<p>" + inline_md_to_html(html.escape(p)).replace("\n", "<br/>") + "</p>")
     return "".join(bits) or "&nbsp;"
 
 
