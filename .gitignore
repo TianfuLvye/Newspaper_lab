@@ -14,6 +14,8 @@ wheels/
 .env.*
 !.env.example
 config/wechat.yaml
+# 知乎收藏夹导入正文,个人数据不进仓库
+config/golden.jsonl
 
 # Runtime data (SQLite, rendered md/pdf)
 tmp/

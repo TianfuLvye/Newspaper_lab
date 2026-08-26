@@ -1,4 +1,4 @@
-"""Fishnet 统一 CLI 入口(Lab 0–6)。
+"""Fishnet 统一 CLI 入口(Lab 0–7)。
 
 用法示例:
   uv run main.py --help
@@ -7,12 +7,13 @@
   uv run main.py collect --only-targeted # Lab 4,不进默认 collect
   uv run main.py collect                 # 热榜 + RSS 订阅
   uv run main.py enrich --limit 20       # Lab 5 正文抽取
-  uv run main.py render --edition am     # Lab 6 出一期早报
+  uv run main.py render --edition am     # Lab 6/7 出一期早报(含个性化版面)
+  uv run main.py golden                  # Lab 7 拟合收藏夹画像
+  uv run main.py ab --kind am            # Lab 7 热度 vs 打分对照
+  uv run main.py feedback --edition DATE-am --n 1 --label 1
   uv run main.py health                  # Lab 6 系统体检
   uv run main.py serve                   # Lab 6 常驻调度
   uv run main.py stats
-  uv run main.py render --section hotlist
-  uv run main.py render --section subscriptions
 """
 from __future__ import annotations
 
@@ -234,6 +235,112 @@ def cmd_push(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_golden(args: argparse.Namespace) -> int:
+    """拟合或刷新黄金集画像。不写出报,不碰 used_in。"""
+    from pipeline.golden import (
+        append_jsonl,
+        fit_taste,
+        import_zhihu_collections,
+        load_golden,
+        save_taste,
+    )
+
+    imported = []
+    if args.refresh:
+        imported = import_zhihu_collections()
+        n = append_jsonl(imported)
+        print(f"zhihu imported={len(imported)} appended={n}")
+    docs = load_golden()
+    print(f"golden docs={len(docs)}")
+    if len(docs) < args.min_docs:
+        print(
+            f"警告:不足 {args.min_docs} 篇(验收线)。"
+            "在 config/golden.yaml 填 zhihu_collections 后加 --refresh。",
+            file=sys.stderr,
+        )
+    fitted = fit_taste(docs)
+    path = save_taste(fitted)
+    print(
+        f"profile k={fitted.profile.k} dim={fitted.embedder.dim} "
+        f"mu_len={fitted.profile.mu_len:.2f} -> {path}"
+    )
+    for name, n in sorted(fitted.clusters.items()):
+        print(f"  cluster {name}: {n}")
+    return 0 if len(docs) >= args.min_docs else 1
+
+
+def cmd_feedback(args: argparse.Namespace) -> int:
+    """记录有用/无用。编号来自该期 ranking.json。"""
+    import json
+
+    store = Store(args.db)
+    try:
+        content_hash = args.hash
+        if args.n is not None:
+            settings = load_settings()
+            manifest = settings.editions_dir / args.edition / "ranking.json"
+            if args.out_dir:
+                manifest = Path(args.out_dir) / "ranking.json"
+            if not manifest.exists():
+                print(f"找不到 {manifest},请先 render --edition 或指定 --hash", file=sys.stderr)
+                return 1
+            data = json.loads(manifest.read_text(encoding="utf-8"))
+            row = next((x for x in data.get("items", []) if x.get("n") == args.n), None)
+            if not row:
+                print(f"编号 F{args.n:02d} 不在 {manifest}", file=sys.stderr)
+                return 1
+            content_hash = row["hash"]
+        if not content_hash:
+            print("需要 --hash 或 --n", file=sys.stderr)
+            return 1
+        store.record_feedback(content_hash, args.edition, args.label)
+        it = store.get_item(content_hash)
+        title = it.title if it else content_hash
+        print(f"feedback edition={args.edition} label={args.label} {title}")
+        return 0
+    finally:
+        store.close()
+
+
+def cmd_ab(args: argparse.Namespace) -> int:
+    """热度排序 vs 打分函数,写出对照稿,不标记 used_in。"""
+    from pipeline.rank import collect_rank_candidates, heat_only_order, rank_items
+    from render.ranked import render_ab_markdown, render_headline
+
+    store = Store(args.db)
+    try:
+        items = collect_rank_candidates(store, window_hours=args.window_hours)
+        heat = heat_only_order(items, n=args.limit)
+        scored = rank_items(items, kind=args.kind, write_store=None)
+        settings = load_settings()
+        dest = Path(args.out_dir) if args.out_dir else (
+            settings.editions_dir / f"_ab-{args.kind}"
+        )
+        dest.mkdir(parents=True, exist_ok=True)
+        heat_md = "# 对照 A · 纯热度\n\n" + "\n".join(
+            f"{i}. {it.title} · {it.source.value}" for i, it in enumerate(heat, 1)
+        ) + "\n"
+        scored_md = render_headline(scored, edition_id=f"ab-{args.kind}")
+        if scored.deepread:
+            from render.ranked import render_deepread
+
+            scored_md += "\n" + render_deepread(scored, edition_id=f"ab-{args.kind}")
+        (dest / "heat.md").write_text(heat_md, encoding="utf-8")
+        (dest / "scored.md").write_text(scored_md, encoding="utf-8")
+        cmp = render_ab_markdown(
+            edition_id=f"ab-{args.kind}",
+            heat_items=heat,
+            heat_titles=[it.title for it in heat[: args.limit]],
+            scored_titles=[ri.item.title for ri in scored.ranked[: args.limit]],
+        )
+        (dest / "compare.md").write_text(cmp, encoding="utf-8")
+        print(f"wrote {dest / 'compare.md'}")
+        print(f"candidates={len(items)} llm_calls={scored.n_llm} (budget 150)")
+        return 0
+    finally:
+        store.close()
+
+
 def build_parser() -> argparse.ArgumentParser:
     settings = load_settings()
     names = ", ".join(list_collector_names(include_dummy=True))
@@ -247,7 +354,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Lab 1: DailyHotApi 热榜采集 → newly_entered → hotlist.md。\n"
             "Lab 3: RSSHub 订阅采集 → subscriptions.md。\n"
             "Lab 5: trafilatura 正文抽取 → items.content。\n"
-            "Lab 6: APScheduler 常驻 + 早晚出报 + 系统体检。"
+            "Lab 6: APScheduler 常驻 + 早晚出报 + 系统体检。\n"
+            "Lab 7: 收藏夹画像 + 两阶段打分 + 事件折叠 + 反馈。"
         ),
         epilog=(
             "Lab 3 快速验收:\n"
@@ -342,7 +450,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  --section hotlist        Lab 1 新上榜 Top N(调试,不标记 used_in)\n"
             "  --section subscriptions  Lab 3 订阅更新(调试,不标记 used_in)\n"
             "  --section all            两者都写\n"
-            "  --edition am|pm          Lab 6 出一期报纸,写入 data/editions/,标记 used_in"
+            "  --edition am|pm          Lab 6/7 出一期报纸(含个性化版面),标记 used_in"
         ),
     )
     p_render.add_argument(
@@ -435,6 +543,56 @@ def build_parser() -> argparse.ArgumentParser:
         description="Lab 9 再实现邮件 / Telegram 推送。",
     )
     p_push.set_defaults(func=cmd_push)
+
+    p_golden = sub.add_parser(
+        "golden",
+        help="拟合收藏夹画像(Lab 7)",
+        description=(
+            "用 config 里的黄金集(≥50 篇 seed)拟合多簇 TasteProfile。\n"
+            "--refresh 会按 golden.yaml 的收藏夹 id 经 RSSHub 追加。"
+        ),
+    )
+    p_golden.add_argument(
+        "--refresh",
+        action="store_true",
+        help="从 RSSHub 拉知乎收藏夹并追加到 config/golden.jsonl",
+    )
+    p_golden.add_argument(
+        "--min-docs",
+        type=int,
+        default=50,
+        help="验收线,默认 50",
+    )
+    p_golden.set_defaults(func=cmd_golden)
+
+    p_fb = sub.add_parser(
+        "feedback",
+        help="给报纸条目打有用/无用(Lab 7)",
+        description="读完 F01 之后: feedback --edition 2026-08-25-am --n 1 --label 1",
+    )
+    p_fb.add_argument("--edition", required=True, help="期号,例如 2026-08-25-am")
+    p_fb.add_argument("--n", type=int, help="版面上的编号 Fnn")
+    p_fb.add_argument("--hash", dest="hash", help="直接指定 content_hash")
+    p_fb.add_argument(
+        "--label",
+        type=int,
+        required=True,
+        choices=(1, -1),
+        help="1=有用, -1=无用",
+    )
+    p_fb.add_argument("--out-dir", type=Path, help="ranking.json 所在目录(默认 editions/期号)")
+    p_fb.set_defaults(func=cmd_feedback)
+
+    p_ab = sub.add_parser(
+        "ab",
+        help="热度 vs 打分 A/B 对照(Lab 7,不标记 used_in)",
+        description="写出 heat.md / scored.md / compare.md,供自己盲评哪期更想读。",
+    )
+    p_ab.add_argument("--kind", choices=("am", "pm"), default="am")
+    p_ab.add_argument("--out-dir", type=Path)
+    p_ab.add_argument("--window-hours", type=int, default=48)
+    p_ab.add_argument("--limit", type=int, default=20)
+    p_ab.set_defaults(func=cmd_ab)
 
     return parser
 

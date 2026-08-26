@@ -12,6 +12,43 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+def _weighted_mean(v: np.ndarray, w: np.ndarray) -> np.ndarray:
+    ww = np.maximum(w, 1e-9)
+    ww = ww / ww.sum()
+    return (v * ww[:, None]).sum(axis=0)  # (d,)
+
+
+def _kmeans_labels(v: np.ndarray, k: int, *, rng: np.random.Generator,
+                   n_init: int = 8, max_iter: int = 40) -> np.ndarray:
+    """极简 K-means。n 只有几十到几百,不需要 sklearn。"""
+    n = len(v)
+    best_labels = np.zeros(n, dtype=np.int32)
+    best_inertia = float("inf")
+    for _ in range(n_init):
+        centers = v[rng.choice(n, size=k, replace=False)]
+        labels = np.zeros(n, dtype=np.int32)
+        for _ in range(max_iter):
+            dist = ((v[:, None, :] - centers[None, :, :]) ** 2).sum(axis=2)
+            new_labels = dist.argmin(axis=1).astype(np.int32)
+            if np.array_equal(new_labels, labels):
+                break
+            labels = new_labels
+            for c in range(k):
+                mask = labels == c
+                if mask.any():
+                    centers[c] = v[mask].mean(axis=0)
+        inertia = float(((v - centers[labels]) ** 2).sum())
+        if inertia < best_inertia:
+            best_inertia = inertia
+            best_labels = labels.copy()
+    return best_labels
+
+
+def age_weight(age_days: float, half_life_days: float = 180.0) -> float:
+    """黄金集时间衰减:半年前权重减半。"""
+    return 0.5 ** (max(age_days, 0.0) / half_life_days)
+
+
 # ---------------------------------------------------------------- 兴趣画像
 @dataclass
 class TasteProfile:
@@ -34,34 +71,38 @@ class TasteProfile:
 
     @classmethod
     def fit(cls, vectors: np.ndarray, lengths: list[int], k: int | None = None,
-            min_cluster: int = 3) -> "TasteProfile":
+            min_cluster: int = 3, sample_weights: np.ndarray | None = None) -> "TasteProfile":
         """从收藏夹样本拟合。
 
         k 的选择:样本少时聚类没意义。经验规则 k ≈ sqrt(N/2),
         并夹在 [2, 8] 之间。50 篇收藏 → k=5,合理。
-        """
-        from sklearn.cluster import KMeans
 
+        sample_weights:画像衰减,半年前的收藏权重减半(Lab 7 思考题 1)。
+        不引入 sklearn:候选量和黄金集都是百这个量级,numpy K-means 够用。
+        """
         v = np.asarray(vectors, dtype=np.float32)
         v = v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-9)
         n = len(v)
+        w = np.ones(n, dtype=np.float64) if sample_weights is None else np.asarray(
+            sample_weights, dtype=np.float64
+        )
         if k is None:
             k = int(np.clip(round(math.sqrt(n / 2)), 2, 8))
         k = min(k, max(1, n // min_cluster))
 
         if k <= 1:
-            cents = v.mean(axis=0, keepdims=True)
+            cents = _weighted_mean(v, w)[None, :]
             sizes = np.array([n])
         else:
-            km = KMeans(n_clusters=k, n_init=10, random_state=42).fit(v)
+            labels = _kmeans_labels(v, k, rng=np.random.default_rng(42))
             cents, sizes = [], []
             for c in range(k):
-                mask = km.labels_ == c
+                mask = labels == c
                 if mask.sum() < min_cluster:
                     continue          # 丢掉太小的簇,它们多半是噪声收藏
-                cents.append(v[mask].mean(axis=0))
+                cents.append(_weighted_mean(v[mask], w[mask]))
                 sizes.append(int(mask.sum()))
-            cents = np.stack(cents) if cents else v.mean(axis=0, keepdims=True)
+            cents = np.stack(cents) if cents else _weighted_mean(v, w)[None, :]
             sizes = np.array(sizes) if sizes else np.array([n])
 
         cents = cents / (np.linalg.norm(cents, axis=1, keepdims=True) + 1e-9)
@@ -129,8 +170,8 @@ class Weights:
 
     @classmethod
     def morning(cls) -> "Weights":
-        """早报:重时效与热度,轻长文。"""
-        return cls(sim=0.20, len=0.05, llm=0.25, hot=0.30, kw=0.20)
+        """早报:仍偏时效,但热度不再压过口味。热榜有自己的版面。"""
+        return cls(sim=0.28, len=0.10, llm=0.28, hot=0.12, kw=0.22)
 
     @classmethod
     def evening(cls) -> "Weights":
@@ -192,3 +233,34 @@ def apply_exploration(ranked: list, n_slots: int, explore_ratio: float = 0.15,
                 and x not in explore]
         explore += rest[:n_exp - len(explore)]
     return main + explore
+
+
+def apply_mmr(ranked: list, vectors: np.ndarray, n_slots: int,
+              lambda_: float = 0.7, score_key=lambda x: x[1].total) -> list:
+    r"""多样性重排。选完第 k 条后,后续按与已选最大余弦做惩罚:
+
+    \[ \mathrm{MMR}(x)=\lambda S(x)-(1-\lambda)\max_{y\in selected}\cos(e_x,e_y) \]
+
+    \lambda≈0.7:同一版面不会全是同一话题的不同角度。
+    """
+    if not ranked or n_slots <= 0:
+        return []
+    v = np.asarray(vectors, dtype=np.float32)
+    v = v / (np.linalg.norm(v, axis=1, keepdims=True) + 1e-9)
+    remaining = list(range(len(ranked)))
+    selected: list[int] = []
+    first = max(remaining, key=lambda i: score_key(ranked[i]))
+    selected.append(first)
+    remaining.remove(first)
+    while remaining and len(selected) < n_slots:
+        best_i = remaining[0]
+        best_s = -1e9
+        for i in remaining:
+            sim_sel = float(np.max(v[i] @ v[selected].T))
+            mmr = lambda_ * float(score_key(ranked[i])) - (1.0 - lambda_) * sim_sel
+            if mmr > best_s:
+                best_s = mmr
+                best_i = i
+        selected.append(best_i)
+        remaining.remove(best_i)
+    return [ranked[i] for i in selected]

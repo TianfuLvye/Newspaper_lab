@@ -11,8 +11,8 @@ from core.schema import Item, Source, Kind, normalize_url, normalize_title
 from core.store import Store
 from core.base import BaseCollector, run_collector, EmptyResultError
 from pipeline.keyword import KeywordEngine, KeywordGroup
-from pipeline.dedup import simhash, hamming, dedup_by_simhash, SimHashIndex
-from pipeline.score import TasteProfile, final_score, Weights, hot_score, apply_exploration
+from pipeline.dedup import simhash, hamming, dedup_by_simhash, SimHashIndex, cluster_by_embedding
+from pipeline.score import TasteProfile, final_score, Weights, hot_score, apply_exploration, apply_mmr
 
 PASS = FAIL = 0
 
@@ -235,6 +235,30 @@ sel = apply_exploration(ranked, n_slots=20, explore_ratio=0.15, seed=1)
 check("版位数不变", len(sel) == 20, str(len(sel)))
 check("确有低相似度高质量内容入选",
       any(x[1].parts["sim"] < 0.55 and x[1].parts["llm"] >= 0.7 for x in sel))
+
+print("\n[Lab 7] MMR 多样性")
+vecs = np.zeros((6, 8), dtype=np.float32)
+vecs[0, 0] = 1; vecs[1, 0] = 1; vecs[2, 0] = 1   # 三篇几乎同向
+vecs[3, 1] = 1; vecs[4, 2] = 1; vecs[5, 3] = 1
+ranked_mmr = [(f"t{i}", final_score(sim=.9, len_s=.5, llm=.5, hot=.5, kw=.5, age_hours=1))
+              for i in range(6)]
+# 让前三篇分数最高,若无 MMR 会全选同向
+for i in range(3):
+    ranked_mmr[i] = (f"t{i}", final_score(sim=.95, len_s=.5, llm=.5, hot=.5, kw=.5, age_hours=1))
+picked = apply_mmr(ranked_mmr, vecs, n_slots=3, lambda_=0.5)
+check("MMR 不会只拿同向的前三", {p[0] for p in picked} != {"t0", "t1", "t2"})
+
+print("\n[Lab 7] L3 聚类(改写稿)")
+from pipeline.embed import TfidfEmbedder
+from pipeline.golden_seed import SEED
+_t1 = "宁德时代发布新一代麒麟电池 能量密度大幅提升"
+_t3 = "宁德时代今日发布新一代麒麟电池 官方称能量密度提升明显"
+_t4 = "上海今天下暴雨 多条地铁线路停运"
+_emb = TfidfEmbedder(dim=32).fit([_t1, _t3, _t4] + [d["title"] + d["content"] for d in SEED])
+_vv = _emb.transform([_t1, _t3, _t4])
+_labs = cluster_by_embedding(_vv, threshold=0.45)
+check("改写稿 L3 能聚在一起", _labs[0] == _labs[1], str(_labs))
+check("无关新闻不进同一簇", _labs[0] != _labs[2], str(_labs))
 
 st.close()
 print(f"\n{'='*60}\n  PASSED {PASS}   FAILED {FAIL}\n{'='*60}")

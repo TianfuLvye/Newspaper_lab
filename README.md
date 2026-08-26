@@ -28,9 +28,12 @@ uv run main.py collect --only-rss           # 只跑订阅
 uv run main.py collect --only-targeted      # Lab 4 小红书创作者(不进默认 collect)
 uv run main.py collect                      # 热榜 + RSS
 uv run main.py enrich --limit 20            # Lab 5 正文抽取
-uv run main.py render --edition am          # Lab 6 出一期早报
+uv run main.py render --edition am          # Lab 6/7 出一期早报(含个性化版面)
 uv run main.py health                       # Lab 6 系统体检
 uv run main.py serve                        # Lab 6 常驻调度
+uv run main.py golden                       # Lab 7 拟合收藏夹画像
+uv run main.py ab --kind am                 # Lab 7 热度 vs 打分对照(不标记 used_in)
+uv run main.py feedback --edition DATE-am --n 1 --label 1
 uv run main.py stats
 uv run main.py render --section hotlist
 uv run main.py render --section subscriptions
@@ -47,6 +50,7 @@ uv run python -m tests.test_lab3       # Lab 3 RSS / 订阅版面
 uv run python -m tests.test_lab4       # Lab 4 MediaCrawler 隔离 / fixture 入库
 uv run python -m tests.test_lab5       # Lab 5 正文抽取 / 缓存 / 降级
 uv run python -m tests.test_lab6       # Lab 6 调度配置 / 出报隔离 / 体检
+uv run python -m tests.test_lab7       # Lab 7 黄金集 / 两阶段 / 折叠 / 反馈 / A/B
 
 # 长时间稳定性(验收标准:6 小时无崩溃)
 uv run python -m tests.test_lab1_endurance --hours 6
@@ -55,7 +59,7 @@ uv run python -m tests.test_lab1_endurance --hours 6
 uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 ```
 
-依赖:`numpy`、`scikit-learn`、`PyYAML`、`httpx`、`feedparser` 等(见 `pyproject.toml`)。
+依赖:`numpy`、`PyYAML`、`httpx`、`feedparser` 等(见 `pyproject.toml`)。
 
 ## 已实现
 
@@ -85,12 +89,19 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | docs/adr/001-why-not-trendradar.md | 2 | 不把 TrendRadar 当数据源的 ADR |
 | docs/adr/004-extract-and-robots.md | 5 | 正文优先 RSS/API;robots 个人 override |
 | docs/adr/005-scheduler-runtime.md | 6 | 调度跑在家;残缺出报;Actions 只做心跳 |
-| pipeline/dedup.py | 7 | SimHash + 鸽笼分桶 + 语义聚类 |
-| pipeline/score.py | 7 | 多簇兴趣画像、对数正态长度分、探索机制 |
+| pipeline/dedup.py | 7 | SimHash + 鸽笼分桶 + 语义聚类 + 事件折叠 |
+| pipeline/score.py | 7 | 多簇兴趣画像、对数正态长度分、探索、MMR |
+| pipeline/embed.py | 7 | 汉字 n-gram TF-IDF,SQLite 存向量 |
+| pipeline/critic.py | 7 | 批判性思考评委(启发式 / 可选 LLM) |
+| pipeline/rank.py | 7 | 两阶段召回,接入 produce_edition |
+| pipeline/golden.py | 7 | 黄金集 ≥50、画像拟合 |
+| render/ranked.py | 7 | 头版 / 深度 / 今日一问 |
+| docs/adr/006-embed-backend.md | 7 | 不上 chromadb 的理由 |
 
 ## 仍待实现
 
 - Lab 4 直播抓取:本机扫码 MediaCrawler + 填写 `targeted.creator_id`(fixture 路径已验收)
-- `render/*` 完整报纸 —— Jinja2 → Markdown → PDF(Lab 8;Lab 6 已有 digest.md + 体检页)
+- `render/*` 完整报纸 —— Jinja2 → Markdown → PDF(Lab 8;Lab 6/7 已有 digest.md + 体检页 + 个性化版面)
 - `notify/*` —— 邮件 / Telegram 推送(Lab 9;07:30 / 18:30 仍是占位)
-- Lab 7 个性化打分接入出报 pipeline(打分模块已有,尚未在 `produce_edition` 里调用)
+- 知乎收藏夹 id 填进 `config/golden.yaml` 后 `golden --refresh`,用你的真收藏替换冷启动 seed
+- 配 `FISHNET_LLM_API_KEY` 后评委从启发式切到 LLM(每期仍 ≤150 次)

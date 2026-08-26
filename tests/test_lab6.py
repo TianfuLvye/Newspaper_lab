@@ -241,7 +241,7 @@ def test_edition_isolates_section_failure():
 
     orig = ed._run_hotlist
 
-    def boom(store, boards):
+    def boom(store, boards, skip=None):
         raise RuntimeError("DailyHotApi 挂了")
 
     ed._run_hotlist = boom

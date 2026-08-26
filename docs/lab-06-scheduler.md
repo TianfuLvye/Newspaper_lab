@@ -84,6 +84,6 @@ uv run main.py serve
 
 - `data/editions/{YYYY-MM-DD-am}/digest.md` 是 Lab 8 的 Markdown 中间层入口;PDF 从这里走,不要从 collector 直出。
 - 体检页文件名 `99_health.md`,Lab 8 模板目录按这个序号接。
-- `used_in` 已有值的条目不再进候选;Lab 7 打分只看未使用 + 当日窗口。
+- `used_in` 已有值的条目不再进候选;Lab 7 打分只看未使用 + 当日窗口(已接入 `produce_edition`)。
 - 出报 Markdown 已含正文(或视频简介),Lab 8 排版时直接吃 `digest.md` / `items/*.md`,不要再做成标题链接表。
 - 推送(07:30 / 18:30)仍是 `main.py push` 占位,Lab 9 接 SMTP / Telegram。

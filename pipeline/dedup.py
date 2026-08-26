@@ -17,6 +17,8 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable, Sequence
 
+import numpy as np
+
 _HASH_BITS = 64
 
 
@@ -125,6 +127,63 @@ def dedup_by_simhash(items: Sequence, key=lambda i: i.content_hash,
 
 
 # ---------------------------------------------------------------- 语义聚类
+def fold_events(items: Sequence, vectors, *,
+                simhash_threshold: int = 3,
+                cosine_threshold: float = 0.82,
+                key=lambda i: i.content_hash,
+                text=lambda i: f"{i.title} {i.summary or ''}",
+                score=lambda i: i.score or 0.0) -> tuple[list, dict[str, list[str]]]:
+    """L2 SimHash 折叠 + L3 语义聚类。每个事件簇只留最高分主稿。
+
+    返回 (主稿列表, {主稿 hash -> 相关报道 hash})。
+    """
+    kept, folded = dedup_by_simhash(
+        items, key=key, text=text, score=score, threshold=simhash_threshold
+    )
+    if len(kept) <= 1:
+        return kept, folded
+
+    key_to_vec = {}
+    raw = list(items)
+    vecs = np.asarray(vectors, dtype=np.float32)
+    if len(vecs) != len(raw):
+        raise ValueError("vectors 必须与 items 等长")
+    for it, vec in zip(raw, vecs):
+        key_to_vec[key(it)] = vec
+
+    kept_vecs = [key_to_vec[key(it)] for it in kept]
+    labels = cluster_by_embedding(kept_vecs, threshold=cosine_threshold)
+    groups: dict[int, list] = defaultdict(list)
+    for it, lab in zip(kept, labels):
+        groups[lab].append(it)
+
+    out, extra = [], dict(folded)
+    taken: set[str] = set()
+    # 按簇内最高分排序,再按全局分数,避免低分簇抢版
+    cluster_reps = []
+    for members in groups.values():
+        members = sorted(members, key=lambda i: -score(i))
+        cluster_reps.append(members)
+    cluster_reps.sort(key=lambda m: -score(m[0]))
+    for members in cluster_reps:
+        primary = members[0]
+        pk = key(primary)
+        if pk in taken:
+            continue
+        out.append(primary)
+        taken.add(pk)
+        rel = extra.get(pk, [])
+        for other in members[1:]:
+            ok = key(other)
+            if ok in taken:
+                continue
+            taken.add(ok)
+            rel.append(ok)
+        if rel:
+            extra[pk] = rel
+    return out, extra
+
+
 def cluster_by_embedding(vectors, threshold: float = 0.82) -> list[int]:
     r"""单遍层次聚类(近似 single-linkage),返回每个元素的簇 id。
 

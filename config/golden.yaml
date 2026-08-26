@@ -1,0 +1,6 @@
+# Lab 7 黄金集。seed 文件 ≥50 篇,是冷启动画像。
+# 填了知乎收藏夹 id 之后,`uv run main.py golden --refresh` 会经 RSSHub 追加。
+min_docs: 50
+seed: config/golden.jsonl
+zhihu_collections: ["971878521", "186318602", "986468231", "972741900", "921765132", "172443215"]
+# 例: zhihu_collections: ["123456789"]  → {rsshub}/zhihu/collection/123456789

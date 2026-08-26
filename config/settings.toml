@@ -31,6 +31,14 @@ pm_minute = 0
 # git clone --depth 1 https://github.com/NanmiCoder/MediaCrawler third_party/MediaCrawler
 home = "third_party/MediaCrawler"
 
+[ranking]
+# Lab 7:粗排 Top N 才跑评委;每期 LLM 调用硬顶。
+coarse_k = 150
+headline_n = 3
+deepread_n = 8
+critical_n = 3
+explore_ratio = 0.15
+
 [extract]
 # Lab 5:正文抽取。同一 URL 24h 内不重复请求;同域名至少间隔 delay_seconds。
 cache_dir = "data/html_cache"

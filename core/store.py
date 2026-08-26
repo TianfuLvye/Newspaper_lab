@@ -87,6 +87,14 @@ CREATE TABLE IF NOT EXISTS feedback (
     created_at   TEXT NOT NULL,
     PRIMARY KEY (content_hash, edition)
 );
+
+CREATE TABLE IF NOT EXISTS embeddings (
+    content_hash TEXT PRIMARY KEY,
+    model        TEXT NOT NULL,
+    dim          INTEGER NOT NULL,
+    vector       BLOB NOT NULL,
+    updated_at   TEXT NOT NULL
+);
 """
 
 CST = timezone(timedelta(hours=8))
@@ -331,6 +339,89 @@ class Store:
             dt = dt.replace(tzinfo=timezone.utc)
         hours = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
         return n, hours
+
+    def update_ranking(
+        self,
+        content_hash: str,
+        *,
+        score: float | None = None,
+        cluster_id: str | None = None,
+        llm_summary: str | None = None,
+    ) -> None:
+        """回写打分结果。只更新传入的字段。"""
+        sets: list[str] = []
+        args: list = []
+        if score is not None:
+            sets.append("score=?")
+            args.append(score)
+        if cluster_id is not None:
+            sets.append("cluster_id=?")
+            args.append(cluster_id)
+        if llm_summary is not None:
+            sets.append("llm_summary=?")
+            args.append(llm_summary)
+        if not sets:
+            return
+        args.append(content_hash)
+        self._conn.execute(
+            f"UPDATE items SET {', '.join(sets)} WHERE content_hash=?", args
+        )
+
+    def record_feedback(self, content_hash: str, edition: str, label: int) -> None:
+        """有用=1 / 无用=-1。同一期同一条覆盖写。"""
+        if label not in (1, -1):
+            raise ValueError("label 只能是 1 或 -1")
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "INSERT INTO feedback(content_hash, edition, label, created_at) "
+            "VALUES (?,?,?,?) "
+            "ON CONFLICT(content_hash, edition) DO UPDATE SET "
+            "label=excluded.label, created_at=excluded.created_at",
+            (content_hash, edition, label, now),
+        )
+
+    def list_feedback(self, edition: str | None = None) -> list[dict]:
+        sql = "SELECT content_hash, edition, label, created_at FROM feedback"
+        args: list = []
+        if edition:
+            sql += " WHERE edition=?"
+            args.append(edition)
+        sql += " ORDER BY created_at DESC"
+        return [dict(r) for r in self._conn.execute(sql, args)]
+
+    def put_embedding(self, content_hash: str, vector, *, model: str) -> None:
+        import numpy as np
+        v = np.asarray(vector, dtype=np.float32).ravel()
+        self._conn.execute(
+            "INSERT INTO embeddings(content_hash, model, dim, vector, updated_at) "
+            "VALUES (?,?,?,?,?) "
+            "ON CONFLICT(content_hash) DO UPDATE SET "
+            "model=excluded.model, dim=excluded.dim, vector=excluded.vector, "
+            "updated_at=excluded.updated_at",
+            (
+                content_hash,
+                model,
+                int(v.size),
+                v.tobytes(),
+                datetime.now(timezone.utc).isoformat(),
+            ),
+        )
+
+    def get_embedding(self, content_hash: str, *, model: str | None = None):
+        import numpy as np
+        if model:
+            row = self._conn.execute(
+                "SELECT dim, vector FROM embeddings WHERE content_hash=? AND model=?",
+                (content_hash, model),
+            ).fetchone()
+        else:
+            row = self._conn.execute(
+                "SELECT dim, vector FROM embeddings WHERE content_hash=?",
+                (content_hash,),
+            ).fetchone()
+        if not row:
+            return None
+        return np.frombuffer(row["vector"], dtype=np.float32).reshape(row["dim"])
 
     def stats(self) -> dict:
         c = self._conn.execute

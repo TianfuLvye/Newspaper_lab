@@ -1,10 +1,12 @@
-"""Lab 6 · 收网:出一期早报 / 晚报。
+"""Lab 6/7 · 收网:出一期早报 / 晚报。
 
 每个版面独立生成,单版失败写成「本栏目今日无数据」,绝不阻断出报。
 成功写入 digest 后才 mark used_in,保证早报出现过的内容不进晚报。
+Lab 7 在热榜/订阅之前跑两阶段打分,写出头版、深度阅读、今日一问。
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -16,6 +18,7 @@ from core.store import Store
 from pipeline.health import HealthReport, diagnose
 from render.health import render_health_md
 from render.hotlist import collect_newly_entered_items, render_hotlist_md
+from render.ranked import render_critical, render_deepread, render_headline
 from render.subscriptions import (
     collect_subscription_items,
     render_subscriptions_md,
@@ -69,10 +72,50 @@ def _placeholder(name: str, title: str, error: str) -> SectionResult:
     )
 
 
-def _run_hotlist(store: Store, boards: list[str]) -> SectionResult:
+def _drop_hashes(items: list, skip: set[str]) -> list:
+    if not skip:
+        return items
+    return [it for it in items if it.content_hash not in skip]
+
+
+def _run_ranked(store: Store, kind: str, edition_id: str) -> tuple[list[SectionResult], object]:
+    from pipeline.rank import rank_for_edition
+
+    result = rank_for_edition(store, kind)
+    sections = [
+        SectionResult(
+            name="headline",
+            filename="01_headline.md",
+            markdown=render_headline(result, edition_id=edition_id),
+            hashes=[ri.item.content_hash for ri in result.headline],
+            has_content=bool(result.headline),
+            items=[ri.item for ri in result.headline],
+        ),
+        SectionResult(
+            name="deepread",
+            filename="03_deepread.md",
+            markdown=render_deepread(result, edition_id=edition_id),
+            hashes=[ri.item.content_hash for ri in result.deepread],
+            has_content=bool(result.deepread),
+            items=[ri.item for ri in result.deepread],
+        ),
+        SectionResult(
+            name="critical",
+            filename="07_critical.md",
+            markdown=render_critical(result, edition_id=edition_id),
+            hashes=[ri.item.content_hash for ri in result.critical],
+            has_content=bool(result.critical),
+            items=[ri.item for ri in result.critical],
+        ),
+    ]
+    return sections, result
+
+
+def _run_hotlist(store: Store, boards: list[str], skip: set[str] | None = None) -> SectionResult:
     items = collect_newly_entered_items(
         store, boards, window_hours=6, limit=20, unused_only=True
     )
+    items = _drop_hashes(items, skip or set())
     md = render_hotlist_md(items, window_hours=6)
     return SectionResult(
         name="hotlist",
@@ -83,7 +126,9 @@ def _run_hotlist(store: Store, boards: list[str]) -> SectionResult:
     )
 
 
-def _run_subscriptions(store: Store, collector_names: set[str] | None) -> SectionResult:
+def _run_subscriptions(
+    store: Store, collector_names: set[str] | None, skip: set[str] | None = None
+) -> SectionResult:
     items = collect_subscription_items(
         store,
         window_hours=168,
@@ -92,6 +137,7 @@ def _run_subscriptions(store: Store, collector_names: set[str] | None) -> Sectio
         unused_only=True,
         max_per_collector=4,
     )
+    items = _drop_hashes(items, skip or set())
     md = render_subscriptions_md(items, window_hours=168)
     return SectionResult(
         name="subscriptions",
@@ -182,20 +228,47 @@ def produce_edition(
     failures: list[tuple[str, str]] = []
     sections: list[SectionResult] = []
     health_report: HealthReport | None = None
+    ranked_skip: set[str] = set()
+    rank_result = None
+
+    elapsed = time.monotonic() - t0
+    if elapsed < deadline:
+        try:
+            ranked_secs, rank_result = _run_ranked(store, kind, eid)
+            sections.extend(ranked_secs)
+            for sec in ranked_secs:
+                ranked_skip.update(sec.hashes)
+        except Exception as e:
+            err = repr(e)
+            log.warning("[%s] ranked sections failed: %s", eid, err)
+            failures.append(("ranked", err))
+            for name, title, fname in (
+                ("headline", "头版", "01_headline.md"),
+                ("deepread", "深度阅读", "03_deepread.md"),
+                ("critical", "今日一问", "07_critical.md"),
+            ):
+                sec = _placeholder(name, title, err)
+                sec.filename = fname
+                sections.append(sec)
+    else:
+        err = f"总时限 {deadline_minutes:.0f}min 已到,跳过"
+        failures.append(("ranked", err))
 
     content_jobs = [
-        ("hotlist", "热榜速览", lambda: _run_hotlist(store, board_names)),
-        ("subscriptions", "订阅更新", lambda: _run_subscriptions(store, rss_collectors)),
+        ("hotlist", "热榜速览", "02_hotlist.md",
+         lambda: _run_hotlist(store, board_names, ranked_skip)),
+        ("subscriptions", "订阅更新", "06_subscribe.md",
+         lambda: _run_subscriptions(store, rss_collectors, ranked_skip)),
     ]
 
-    for name, title, fn in content_jobs:
+    for name, title, fname, fn in content_jobs:
         elapsed = time.monotonic() - t0
         remaining = deadline - elapsed
         if remaining <= 0:
             err = f"总时限 {deadline_minutes:.0f}min 已到,跳过"
             failures.append((name, err))
             sec = _placeholder(name, title, err)
-            sec.filename = "02_hotlist.md" if name == "hotlist" else "06_subscribe.md"
+            sec.filename = fname
             sections.append(sec)
             continue
         try:
@@ -212,7 +285,7 @@ def produce_edition(
             log.warning("[%s] section %s failed: %s", eid, name, err)
             failures.append((name, err))
             sec = _placeholder(name, title, err)
-            sec.filename = "02_hotlist.md" if name == "hotlist" else "06_subscribe.md"
+            sec.filename = fname
         sections.append(sec)
 
     try:
@@ -234,8 +307,22 @@ def produce_edition(
     for sec in sections:
         if sec.filename:
             (dest / sec.filename).write_text(sec.markdown, encoding="utf-8")
-        if sec.name == "subscriptions" and sec.items:
-            write_item_files(sec.items, dest / "items")
+    item_rows = []
+    seen_items: set[str] = set()
+    for sec in sections:
+        for it in sec.items or []:
+            if it.content_hash not in seen_items:
+                seen_items.add(it.content_hash)
+                item_rows.append(it)
+    if item_rows:
+        write_item_files(item_rows, dest / "items")
+    if rank_result is not None:
+        from pipeline.rank import ranking_manifest
+
+        (dest / "ranking.json").write_text(
+            json.dumps(ranking_manifest(rank_result), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     used: list[str] = []
     seen: set[str] = set()
