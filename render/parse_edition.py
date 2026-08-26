@@ -21,13 +21,13 @@ _HTML_IMG_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\'][^>]*>', re.I)
 _H1 = re.compile(r"^# (.+)$", re.M)
 _FN = re.compile(r"^F(\d+)\s*·\s*(.+)$")
 
-# 预算只当安全阀:真超了会在段落边界裁,并且印出「未完」指路标记;
-# 绝不在句子中间悄悄锯掉。
+# 字符预算只是防病态输入的安全阀(比如抓回来的整站 dump),不是编辑裁稿刀:
+# 正常稿件必须全文见报。真超了也在段落边界下刀,并印「本文有删节」认账。
 _MAX_CHARS = {
-    "headline": 4000,
-    "deepread": 3600,
-    "critical": 2200,
-    "subscribe": 1400,
+    "headline": 6000,
+    "deepread": 5000,
+    "critical": 3200,
+    "subscribe": 20000,
     "hotlist": 8000,
     "health": 6000,
 }

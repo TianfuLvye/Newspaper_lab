@@ -292,6 +292,39 @@ check(
     and not re.search(r"（上接", ht)
     and not re.search(r"上接[^<]*·\s*F", ht),
 )
+cut = layout_edition(
+    [
+        Article(
+            id="headline-cut",
+            section="headline",
+            role="story",
+            title="删节测试：安全阀超限时必须认账",
+            kicker="头版",
+            body="裁我请在段落边界。这是一段会被安全阀切掉的长正文。" * 40,
+            images=[],
+            priority=0,
+            max_chars=400,
+            max_pages=9,
+        )
+    ],
+    kind="am",
+    edition_id="cut-am",
+    lede="裁",
+)
+cut_html = tmp / "cut.html"
+write_html(cut, cut_html)
+ct = cut_html.read_text(encoding="utf-8")
+check(
+    "超预算印「有删节」,绝不印指路文件路径",
+    "（本文有删节）" in ct and "items/" not in ct and "未完" not in ct,
+)
+whole_html = tmp / "whole.html"
+write_html(huge, whole_html)
+wt = whole_html.read_text(encoding="utf-8")
+check(
+    "预算内长稿全文见报,不印删节",
+    "（本文有删节）" not in wt and "items/" not in wt,
+)
 from html import unescape as _unesc
 from render.layout.measure import line_height_mm as _lh_mm
 

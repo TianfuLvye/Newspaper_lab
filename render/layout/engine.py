@@ -185,8 +185,8 @@ class _Attempt:
 
 
 def _budget_slice(body: str, max_chars: int) -> tuple[str, bool]:
-    """按字符预算裁稿。超预算时在段落/句子边界下刀,并打出 over_budget 旗标,
-    让最后一块印出「未完」指路——绝不在一句中间悄悄截断。"""
+    """按字符安全阀裁稿。超预算时在段落/句子边界下刀,并打出 over_budget 旗标,
+    让最后一块印出「本文有删节」认账——绝不在一句中间悄悄截断。"""
     if len(body) <= max_chars:
         return body, False
     cut = body.rfind("\n\n", 0, max_chars)
@@ -392,12 +392,20 @@ def _place_pass(
     *,
     chain: bool = False,
 ) -> list[Chunk]:
-    """一轮「能放就放」,直到没有进展。chain=True 时续文尾巴当场接着排(内页)。"""
+    """一轮「能放就放」,直到没有进展。chain=True 时续文尾巴当场接着排(内页)。
+
+    同一篇稿每版至多一块:长尾巴当场连排会把一篇文章在同一版撕成
+    一堆碎块——报纸不这么干,续文等下一版拿一块大的。
+    """
     progressed = True
     while progressed:
         progressed = False
         nxt: list[Chunk] = []
+        placed = {a.block.article_id for a in attempts}
         for ch in work:
+            if ch.article.id in placed:
+                nxt.append(ch)
+                continue
             attempt = _try_place(packer, ch, geom, types, page_i, max_h)
             if attempt is None:
                 nxt.append(ch)
@@ -591,27 +599,22 @@ def _materialize(
 
     truncated = False
     rest: Chunk | None = None
-    used_pages = chunk.part + 1
     if tail or overflow_imgs:
-        if used_pages >= art.max_pages:
-            truncated = True
-            head = head.rstrip() + "\n\n（未完,全文见本期 items/ 或原文。）"
-            tail = ""
-            overflow_imgs = []
-        else:
-            rest = Chunk(
-                article=art,
-                body=tail,
-                images=overflow_imgs,
-                part=chunk.part + 1,
-                truncated=False,
-                over_budget=chunk.over_budget,
-            )
+        # 版面没有「页数预算」:稿子过了字符安全阀就该全文见报,一页接一页
+        # 排完为止。拿版面临时砍稿等于让引擎替编辑做丢稿决定。
+        rest = Chunk(
+            article=art,
+            body=tail,
+            images=overflow_imgs,
+            part=chunk.part + 1,
+            truncated=False,
+            over_budget=chunk.over_budget,
+        )
     elif chunk.over_budget:
-        # 预算内文字已排完,但原稿在 max_chars 处被裁过:把截断印出来指路,
-        # 不能让读者以为文章就到这里。
+        # 字符安全阀在段落边界裁过稿:印「有删节」认账——报纸上唯一诚实的
+        # 省略方式。绝不印「见 items/」这种拿文件路径当报缝的鬼话。
         truncated = True
-        head = head.rstrip() + "\n\n（未完,全文见本期 items/ 或原文。）"
+        head = head.rstrip() + "\n\n（本文有删节）"
 
     kind = "placeholder" if art.empty else ("index" if art.role == "index" else "story")
     block = PlacedBlock(
