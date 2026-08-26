@@ -279,7 +279,8 @@ check(
 check(
     "目录标题印全文且缀粗体字数",
     all(t[1] in html for t in inside.teasers)
-    and all(f'<b class="wc">{t[3]} 字</b>' in html for t in inside.teasers if t[3]),
+    and all(f'<b class="wc">{t[3]} 字</b>' in html for t in inside.teasers if t[3])
+    and '<span class="sep">//</span>' in html,
 )
 _n_arts = len(
     {

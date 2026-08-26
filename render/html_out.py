@@ -83,6 +83,7 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
     text-align: left; overflow-wrap: break-word; line-height: 1.42; font-size: 7.0pt; }}
   .inside.rail .inside-item .k {{ display: block; padding-bottom: 0.2mm; }}
   .inside-item .wc {{ font-weight: 700; white-space: nowrap; }}
+  .inside-item .sep {{ color: #999; }}
   .footer {{ position: absolute; font-size: 7pt; color: #444; border-top: 0.2mm solid #111; }}
   @media print {{
     body {{ background: #fff; }}
@@ -182,8 +183,8 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
             '<div class="inside-grid">',
         ]
         for kicker, title, page_no, n_chars in items:
-            # 题面印全文,句尾加粗字数:目录是读者选稿的依据,半截标题等于没指
-            wc = f' <b class="wc">{n_chars} 字</b>' if n_chars else ""
+            # 题面印全文,句尾「//」隔开加粗字数:目录是读者选稿的依据,半截标题等于没指
+            wc = f' <span class="sep">//</span> <b class="wc">{n_chars} 字</b>' if n_chars else ""
             bits.append(
                 f'<div class="inside-item"><span class="p">{page_no}</span>'
                 f'<span class="k">{html.escape(kicker)}</span> '

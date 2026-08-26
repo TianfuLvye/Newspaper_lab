@@ -24,6 +24,7 @@ from render.markup import MdTable, split_md_segments, strip_inline_md
 
 INK = HexColor("#111111")
 MUTED = HexColor("#444444")
+FAINT = HexColor("#999999")
 HAIR = HexColor("#222222")
 
 
@@ -210,8 +211,9 @@ def _draw_inside(
     for kicker, title, page_no, n_chars in items:
         label = f"{n_chars} 字" if n_chars else ""
         lines = wrap_text(title or " ", text_w, 7.0) or [""]
+        sep_w = stringWidth("// ", body_font, 7.0)
         extra = 0
-        if label and stringWidth(lines[-1] + " ", body_font, 7.0) + stringWidth(
+        if label and stringWidth(lines[-1] + " ", body_font, 7.0) + sep_w + stringWidth(
             label, title_font, 7.0
         ) > mm_to_pt(text_w):
             extra = 1
@@ -234,16 +236,16 @@ def _draw_inside(
             c.drawString(mm_to_pt(x), _y(page_h_pt, ty), ln)
             ty += 3.3
         if label:
-            if extra:
-                c.setFont(title_font, 7.0)
-                c.drawString(mm_to_pt(x), _y(page_h_pt, ty), label)
-            else:
-                c.setFont(title_font, 7.0)
-                c.drawString(
-                    mm_to_pt(x) + stringWidth(lines[-1] + " ", body_font, 7.0),
-                    _y(page_h_pt, ty - 3.3),
-                    label,
-                )
+            x_lab = mm_to_pt(x) if extra else mm_to_pt(x) + stringWidth(
+                lines[-1] + " ", body_font, 7.0
+            )
+            y_lab = ty if extra else ty - 3.3
+            c.setFont(body_font, 7.0)
+            c.setFillColor(FAINT)
+            c.drawString(x_lab, _y(page_h_pt, y_lab), "//")
+            c.setFont(title_font, 7.0)
+            c.setFillColor(INK)
+            c.drawString(x_lab + sep_w, _y(page_h_pt, y_lab), label)
             ty += 3.3 * extra
         y = ty + 1.6
 

@@ -681,7 +681,7 @@ def _fill_inside(pages: list[PageLayout]) -> None:
             picked: list[tuple[str, str, int, int]] = []
             for t in teasers:
                 _kicker, title, _pg, n_chars = t
-                label = f"{title} {n_chars} 字" if n_chars else title
+                label = f"{title} // {n_chars} 字" if n_chars else title
                 n_lines = max(1, len(wrap_text(label or " ", inner_w, 7.0)))
                 item_h = 3.2 + n_lines * line_height_mm(7.0, 1.42) + 1.7
                 if picked and y + item_h > b.mm.h - 2.0:
