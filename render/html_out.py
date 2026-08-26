@@ -77,6 +77,11 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
   .inside-item {{ padding: 0.3mm 0 1mm; font-size: 7.4pt; break-inside: avoid; }}
   .inside-item .k {{ font-size: 6.0pt; color: #444; letter-spacing: .08em; }}
   .inside-item .p {{ float: right; font-variant-numeric: tabular-nums; }}
+  .inside.rail .inside-head {{ letter-spacing: .45em; }}
+  .inside.rail .inside-grid {{ column-count: 1; column-gap: 0; padding: 1.8mm 2mm 0; }}
+  .inside.rail .inside-item {{ padding: 1.1mm 0 2.4mm; border-bottom: 0.1mm solid #ccc;
+    text-align: left; overflow-wrap: break-word; line-height: 1.45; }}
+  .inside.rail .inside-item .k {{ display: block; padding-bottom: 0.2mm; }}
   .footer {{ position: absolute; font-size: 7pt; color: #444; border-top: 0.2mm solid #111; }}
   @media print {{
     body {{ background: #fff; }}
@@ -170,15 +175,20 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
 
     if b.kind == "inside":
         items = b.teasers or [("内页", "本期其余稿件见后续版面", 2)]
-        bits = ['<div class="inside-head">INSIDE</div>', '<div class="inside-grid">']
+        rail = b.cells.w <= 2
+        bits = [
+            f'<div class="inside-head">{"目　录" if rail else "INSIDE"}</div>',
+            '<div class="inside-grid">',
+        ]
+        lim = 18 if rail else 22
         for kicker, title, page_no in items:
             bits.append(
                 f'<div class="inside-item"><span class="p">{page_no}</span>'
                 f'<span class="k">{html.escape(kicker)}</span> '
-                f"{html.escape(title[:22])}</div>"
+                f"{html.escape(title[:lim])}</div>"
             )
         bits.append("</div>")
-        return _abs_div("inside", b.mm, "".join(bits))
+        return _abs_div("inside rail" if rail else "inside", b.mm, "".join(bits))
 
     ch = b.chunk
     kicker = (ch.article.kicker if ch else b.section) or b.section

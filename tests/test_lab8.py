@@ -270,18 +270,22 @@ check("白底不是奶油色", "background: #fff" in html)
 check("正文用 CSS 竖栏", "column-count" in html)
 check("头版有 Inside", any(b.kind == "inside" for b in news.layout.pages[0].blocks))
 inside = next(b for b in news.layout.pages[0].blocks if b.kind == "inside")
-check("Inside 是通栏横条", inside.cells.w == 6 and inside.cells.r >= 12, str(inside.cells))
+check(
+    "Inside 是头版左栏目录",
+    inside.cells.c == 0 and inside.cells.w == 1 and inside.cells.h >= 10,
+    str(inside.cells),
+)
 check("稿件之间有细线", "rule-v" in html or "rule-h" in html)
 check("正文按段落输出", "<p>" in html)
 check("CSS 分栏从左填满", "column-fill: auto" in html)
 check("热榜加粗不是星号", "<strong>甲事件</strong>" in html and "**甲事件**" not in html)
 skinny = [
-    (b.article_id, b.cells.w)
+    (b.article_id, b.cells.w, b.cells.h)
     for p in news.layout.pages
     for b in p.blocks
-    if b.kind == "story" and b.cells.w < 2
+    if b.kind == "story" and (b.cells.w < 1 or (b.cells.w == 1 and b.cells.h > 4))
 ]
-check("正文块至少两栏宽", not skinny, str(skinny))
+check("一栏宽只放短块(短讯/续尾)", not skinny, str(skinny))
 wide = [
     b.n_text_cols
     for p in news.layout.pages

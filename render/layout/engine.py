@@ -243,17 +243,16 @@ def layout_edition(
         ]
         max_h = geom.rows - mast_h
         if page_i == 0 and geom.rows - mast_h >= 6:
-            # 通栏 INSIDE 横条贴在页底,不占右下角——右下角那块会把 F02/F03 撕出 1 栏空洞。
-            band_h = 2
-            ic = CellRect(0, geom.rows - band_h, geom.cols, band_h)
-            packer.occupy(ic.c, ic.r, ic.w, ic.h)
-            reserved.append(ic)
-            max_h = geom.rows - mast_h - band_h
+            # WSJ 式左栏:头版最左一列固定给本期目录(What's News 栏位),
+            # 正文区变 5 栏 × 12 行,面积与原来的通栏横条相同。
+            rail = CellRect(0, mast_h, 1, geom.rows - mast_h)
+            packer.occupy(rail.c, rail.r, rail.w, rail.h)
+            reserved.append(rail)
             blocks.append(
                 PlacedBlock(
                     chunk=None,
-                    cells=ic,
-                    mm=geom.cell_to_mm(ic),
+                    cells=rail,
+                    mm=geom.cell_to_mm(rail),
                     page=page_i,
                     kind="inside",
                     section="inside",
@@ -265,12 +264,13 @@ def layout_edition(
         # 面积是一次性粗估的,装完全文的块常常虚占格子。让它们缩回真实
         # 内容大小,再用吐出来的空格补放排在后面的稿。
         for _ in range(4):
-            if not _compact_attempts(attempts, geom, types, page_i):
-                break
+            packer, work, changed = _compact_attempts(
+                packer, attempts, work, geom, types, page_i, max_h, reserved=reserved
+            )
             packer = _rebuild_packer(geom, reserved, attempts)
             before = len(work)
             work = _place_pass(packer, work, attempts, geom, types, page_i, max_h)
-            if len(work) == before:
+            if not changed and len(work) == before:
                 break
         _grow_into_holes(packer, attempts, geom, types, page_i)
         rest_work: list[Chunk] = []
@@ -284,14 +284,16 @@ def layout_edition(
         )
         # 续文按真实尾巴装完后同样可能虚占,再收一轮。
         for _ in range(4):
-            if not _compact_attempts(attempts, geom, types, page_i):
-                break
+            packer, work, changed = _compact_attempts(
+                packer, attempts, work, geom, types, page_i, max_h,
+                reserved=reserved, chain=True,
+            )
             packer = _rebuild_packer(geom, reserved, attempts)
             before = len(work)
             work = _place_pass(
                 packer, work, attempts, geom, types, page_i, max_h, chain=True
             )
-            if len(work) == before:
+            if not changed and len(work) == before:
                 break
         leftover = work
         for att in attempts:
@@ -340,7 +342,8 @@ def _try_place(
     prefer = prefer_for(chunk.article.section, chunk.part)
     cap_w, cap_h = first_chunk_cap(chunk, max_h, geom.cols)
     area = min(area, cap_w * cap_h)
-    min_w, min_h = (2, 4) if chunk.article.role == "index" else (2, 3)
+    # 一栏块合法,但只能矮(短讯/续尾):长腿细栏会像博客侧栏,不像报纸。
+    min_w, min_h = (2, 4) if chunk.article.role == "index" else (1, 3)
     if chunk.part > 0:
         min_h = 2
     shapes = candidate_shapes(
@@ -349,11 +352,21 @@ def _try_place(
     if chunk.article.empty:
         min_w, min_h = 2, 2
         shapes = [(min(6, cap_w), 2), (3, 2), (2, 2)] + shapes
-    shapes.append((min(min_w, cap_w), min(min_h, cap_h)))
+    # 降级阶梯:内容区被目录栏挤窄后,头条的 6×4 放不进去;按面积缩档
+    # 找 5×4 / 4×4 之类的次大形状,而不是一步跌到 1 栏火柴梗。
+    for decay in (0.8, 0.62, 0.5):
+        sub_area = max(min_w * min_h, int(area * decay))
+        if sub_area < area:
+            shapes.extend(
+                candidate_shapes(
+                    sub_area, max_w=cap_w, max_h=cap_h, prefer=prefer, min_h=min_h
+                )
+            )
     shapes.append((cap_w, min(cap_h, max(4, math.ceil(area / max(cap_w, 1))))))
+    shapes.append((min(min_w, cap_w), min(min_h, cap_h)))
 
     for w, h in shapes:
-        if w > cap_w or h > cap_h or w < min_w or h < 2:
+        if w > cap_w or h > cap_h or w < min_w or h < 2 or (w == 1 and h > 4):
             continue
         cell = packer.place(w, h)
         if cell is None:
@@ -406,15 +419,23 @@ def _rebuild_packer(
 
 
 def _compact_attempts(
+    packer: MaxRects,
     attempts: list[_Attempt],
+    work: list[Chunk],
     geom: PageGeom,
     types: TypeSpec,
     page_i: int,
-) -> bool:
+    max_h: int,
+    *,
+    reserved: list[CellRect],
+    chain: bool = False,
+) -> tuple[MaxRects, list[Chunk], bool]:
     """装完全文的块把虚占的格子吐出来(缩 1 栏宽或 1 行高,直到再缩就掉字)。
 
     只动「字已装完」的块:续文还在或已被收走的块,缩了会把已排版的尾巴
     截出一截新续文,和后面那块对不上。占位块故意撑场面,也不动。
+    每次收缩立刻重建自由区并补放排在后面的稿——腾出的洞别等整轮结束,
+    中途就可能被用掉。
     """
     changed = False
     for att in attempts:
@@ -423,6 +444,7 @@ def _compact_attempts(
             continue
         if ch.body != att.source.body or att.source.article.empty:
             continue
+        min_w = 1 if att.source.article.role == "story" else 2
         while True:
             cell = att.block.cells
             shrunk: PlacedBlock | None = None
@@ -432,13 +454,16 @@ def _compact_attempts(
                 CellRect(cell.c, cell.r, cell.w, cell.h - 1),
                 CellRect(cell.c, cell.r + 1, cell.w, cell.h - 1),
             ):
+                # 别缩出又细又长的条:h > 2w 的块像博客侧栏,裂出的缝也拼不回大洞
                 if (
-                    trial.w < 2
+                    trial.w < min_w
+                    or (trial.w == 1 and trial.h > 4)
                     or trial.h < 2
                     or trial.c < 0
                     or trial.r < 0
                     or trial.c + trial.w > geom.cols
                     or trial.r + trial.h > geom.rows
+                    or trial.h > 2 * trial.w
                 ):
                     continue
                 block, rest = _materialize(att.source, trial, geom, types, page_i)
@@ -456,7 +481,12 @@ def _compact_attempts(
                 break
             att.block = shrunk
             changed = True
-    return changed
+            packer = _rebuild_packer(geom, reserved, attempts)
+            if work:
+                work = _place_pass(
+                    packer, work, attempts, geom, types, page_i, max_h, chain=chain
+                )
+    return packer, work, changed
 
 
 def _grow_into_holes(
@@ -621,33 +651,22 @@ def _fill_inside(pages: list[PageLayout]) -> None:
     if not pages:
         return
     first: dict[str, tuple[int, str, str]] = {}
-    jumps: list[tuple[str, str, int]] = []
     for p in pages:
         for b in p.blocks:
             if b.chunk is None or b.kind in ("masthead", "folio", "inside"):
                 continue
-            title = b.chunk.article.title
-            kicker = b.chunk.article.kicker or b.section
             if b.article_id not in first:
+                title = b.chunk.article.title
+                kicker = b.chunk.article.kicker or b.section
                 first[b.article_id] = (b.page, kicker, title)
-            if b.jump_to:
-                jumps.append((kicker, title, b.jump_to))
+    # 目录栏登的是「本期全部稿件的首发页码」(含头版稿,页码标 1),
+    # 按版面顺序从上到下读;不是原来那种只指内页的 INSIDE 横条。
     teasers: list[tuple[str, str, int]] = []
-    seen: set[str] = set()
-
-    def add(kicker: str, title: str, page_no: int) -> None:
-        key = title[:28]
-        if key in seen or page_no < 2:
-            return
-        seen.add(key)
-        teasers.append((kicker, title, page_no))
-
-    for kicker, title, page_no in jumps:
-        add(kicker, title, page_no)
     for _aid, (pg, kicker, title) in first.items():
-        add(kicker, title, pg + 1)
-    teasers = teasers[:7]
+        teasers.append((kicker, title, pg + 1))
     for b in pages[0].blocks:
         if b.kind == "inside":
-            b.teasers = teasers
+            # 竖栏目录比横条高得多:按栏高放量,稿件尽量都上榜
+            fit = max(7, int((b.mm.h - 8.0) / 12.0))
+            b.teasers = teasers[:fit]
             break

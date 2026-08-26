@@ -172,6 +172,7 @@ def _draw_inside(
     page_h_pt: float,
 ) -> None:
     r = block.mm
+    rail = r.w < 100.0
     bar_h = 5.4
     c.setFillColor(INK)
     c.rect(
@@ -184,7 +185,9 @@ def _draw_inside(
     )
     c.setFillColor(white)
     c.setFont(title_font, 8.6)
-    c.drawCentredString(mm_to_pt(r.x + r.w / 2), _y(page_h_pt, r.y + 3.9), "INSIDE")
+    c.drawCentredString(
+        mm_to_pt(r.x + r.w / 2), _y(page_h_pt, r.y + 3.9), "目  录" if rail else "INSIDE"
+    )
     c.setStrokeColor(INK)
     c.setLineWidth(0.55)
     c.rect(
@@ -200,13 +203,16 @@ def _draw_inside(
     col_w = r.w / n_cols
     body = MmRect(r.x, r.y + bar_h, r.w, max(4.0, r.h - bar_h))
     per_col = max(1, (len(items) + n_cols - 1) // n_cols)
+    # 目录栏按栏高拉开行距,竖栏不再前几条挤成一团、后半截空着
+    step = max(10.2, min(16.0, (body.h - 4.2) / max(1, per_col)))
+    t_lim = 14 if rail else 18
     for i, (kicker, title, page_no) in enumerate(items):
         col = i // per_col
         row = i % per_col
         if col >= n_cols:
             break
         x = body.x + col * col_w
-        y = body.y + 4.2 + row * 10.2
+        y = body.y + 4.2 + row * step
         if y > r.bottom - 3:
             continue
         c.setFont(body_font, 6.0)
@@ -214,7 +220,7 @@ def _draw_inside(
         c.drawString(mm_to_pt(x + 2.0), _y(page_h_pt, y), kicker[:8])
         c.setFillColor(INK)
         c.setFont(title_font, 7.2)
-        short = title[:18] + ("…" if len(title) > 18 else "")
+        short = title[:t_lim] + ("…" if len(title) > t_lim else "")
         c.drawString(mm_to_pt(x + 2.0), _y(page_h_pt, y + 3.6), short)
         c.setFont(body_font, 7.0)
         c.drawRightString(mm_to_pt(x + col_w - 2.2), _y(page_h_pt, y + 3.6), f"{page_no}")
