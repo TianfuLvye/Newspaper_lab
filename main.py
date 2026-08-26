@@ -1,4 +1,4 @@
-"""Fishnet 统一 CLI 入口(Lab 0–7)。
+"""Fishnet 统一 CLI 入口(Lab 0–8)。
 
 用法示例:
   uv run main.py --help
@@ -7,7 +7,8 @@
   uv run main.py collect --only-targeted # Lab 4,不进默认 collect
   uv run main.py collect                 # 热榜 + RSS 订阅
   uv run main.py enrich --limit 20       # Lab 5 正文抽取
-  uv run main.py render --edition am     # Lab 6/7 出一期早报(含个性化版面)
+  uv run main.py render --edition am     # Lab 6/7/8 出一期早报(含 PDF)
+  uv run main.py pdf                     # 对已有 digest 只排版,不重跑打分
   uv run main.py golden                  # Lab 7 拟合收藏夹画像
   uv run main.py ab --kind am            # Lab 7 热度 vs 打分对照
   uv run main.py feedback --edition DATE-am --n 1 --label 1
@@ -152,6 +153,14 @@ def cmd_render(args: argparse.Namespace) -> int:
             result = produce_edition(args.edition, store, out_dir=args.out_dir)
             print(f"edition {result.edition_id} status={result.status}")
             print(f"wrote {result.digest_path}")
+            html = result.digest_path.with_name("digest.html")
+            pdf = result.digest_path.with_name("digest.pdf")
+            if html.exists():
+                print(f"wrote {html}")
+            if pdf.exists():
+                print(f"wrote {pdf}")
+            elif not pdf.exists():
+                print("pdf missing (see log; HTML 仍可打印)", file=sys.stderr)
             if result.failures:
                 for name, err in result.failures:
                     print(f"  fail [{name}] {err}", file=sys.stderr)
@@ -228,6 +237,50 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from scheduler.run import serve
 
     return serve(db_path=args.db, include_targeted=not args.no_targeted)
+
+
+def cmd_pdf(args: argparse.Namespace) -> int:
+    """对已有一期 Markdown 做 A3 矩阵排版。不打 used_in,不跑采集。"""
+    from core.settings import load_settings
+    from render.newspaper import render_newspaper
+
+    settings = load_settings()
+    dest: Path | None = None
+    if args.dir:
+        dest = Path(args.dir)
+    elif args.edition:
+        dest = settings.editions_dir / args.edition
+    else:
+        root = settings.editions_dir
+        if root.exists():
+            dirs = sorted(
+                (
+                    p
+                    for p in root.iterdir()
+                    if p.is_dir() and not p.name.startswith("_")
+                ),
+                key=lambda p: p.name,
+                reverse=True,
+            )
+            dest = dirs[0] if dirs else None
+    if dest is None or not dest.exists():
+        print("找不到期次目录。先 render --edition am,或指定 --edition / --dir。", file=sys.stderr)
+        return 1
+    kind = None
+    if dest.name.endswith("-pm"):
+        kind = "pm"
+    elif dest.name.endswith("-am"):
+        kind = "am"
+    result = render_newspaper(dest, kind=kind, pdf=not args.html_only)
+    print(f"edition {result.edition_id} kind={result.kind} pages={result.layout.n_pages}")
+    print(f"wrote {result.html_path}")
+    print(f"wrote {result.layout_path}")
+    if result.pdf_path:
+        print(f"wrote {result.pdf_path} ({result.seconds:.2f}s)")
+    if result.error:
+        print(f"pdf error: {result.error}", file=sys.stderr)
+        return 1
+    return 0
 
 
 def cmd_push(args: argparse.Namespace) -> int:
@@ -355,7 +408,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Lab 3: RSSHub 订阅采集 → subscriptions.md。\n"
             "Lab 5: trafilatura 正文抽取 → items.content。\n"
             "Lab 6: APScheduler 常驻 + 早晚出报 + 系统体检。\n"
-            "Lab 7: 收藏夹画像 + 两阶段打分 + 事件折叠 + 反馈。"
+            "Lab 7: 收藏夹画像 + 两阶段打分 + 事件折叠 + 反馈。\n"
+            "Lab 8: digest.md → A3 矩阵 HTML/PDF。"
         ),
         epilog=(
             "Lab 3 快速验收:\n"
@@ -450,7 +504,7 @@ def build_parser() -> argparse.ArgumentParser:
             "  --section hotlist        Lab 1 新上榜 Top N(调试,不标记 used_in)\n"
             "  --section subscriptions  Lab 3 订阅更新(调试,不标记 used_in)\n"
             "  --section all            两者都写\n"
-            "  --edition am|pm          Lab 6/7 出一期报纸(含个性化版面),标记 used_in"
+            "  --edition am|pm          Lab 6/7/8 出一期报纸(含个性化版面 + A3 PDF),标记 used_in"
         ),
     )
     p_render.add_argument(
@@ -493,6 +547,30 @@ def build_parser() -> argparse.ArgumentParser:
         help="edition 输出目录(默认 data/editions/{期号})",
     )
     p_render.set_defaults(func=cmd_render)
+
+    p_pdf = sub.add_parser(
+        "pdf",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="把已有 digest 排成 A3 报纸(Lab 8,不标记 used_in)",
+        description=(
+            "只吃 data/editions/{期号}/ 里的 Markdown,写出 digest.html / digest.pdf / layout.json。\n"
+            "排版调试用这个,不要重跑 collect。"
+        ),
+        epilog=(
+            "示例:\n"
+            "  uv run main.py pdf\n"
+            "  uv run main.py pdf --edition 2026-08-26-am\n"
+            "  uv run main.py pdf --dir data/editions/2026-08-26-am"
+        ),
+    )
+    p_pdf.add_argument("--edition", help="期号,例如 2026-08-26-am")
+    p_pdf.add_argument("--dir", type=Path, dest="dir", help="期次目录")
+    p_pdf.add_argument(
+        "--html-only",
+        action="store_true",
+        help="只写 HTML,不写 PDF",
+    )
+    p_pdf.set_defaults(func=cmd_pdf)
 
     p_enrich = sub.add_parser(
         "enrich",

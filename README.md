@@ -28,7 +28,8 @@ uv run main.py collect --only-rss           # 只跑订阅
 uv run main.py collect --only-targeted      # Lab 4 小红书创作者(不进默认 collect)
 uv run main.py collect                      # 热榜 + RSS
 uv run main.py enrich --limit 20            # Lab 5 正文抽取
-uv run main.py render --edition am          # Lab 6/7 出一期早报(含个性化版面)
+uv run main.py render --edition am          # Lab 6/7/8 出一期早报(含 PDF)
+uv run main.py pdf --edition 2026-08-26-am  # 只排版已有 digest,不打 used_in
 uv run main.py health                       # Lab 6 系统体检
 uv run main.py serve                        # Lab 6 常驻调度
 uv run main.py golden                       # Lab 7 拟合收藏夹画像
@@ -51,6 +52,7 @@ uv run python -m tests.test_lab4       # Lab 4 MediaCrawler 隔离 / fixture 入
 uv run python -m tests.test_lab5       # Lab 5 正文抽取 / 缓存 / 降级
 uv run python -m tests.test_lab6       # Lab 6 调度配置 / 出报隔离 / 体检
 uv run python -m tests.test_lab7       # Lab 7 黄金集 / 两阶段 / 折叠 / 反馈 / A/B
+uv run python -m tests.test_lab8       # Lab 8 A3 矩阵排版 / 分页 / 配图算法 / PDF
 
 # 长时间稳定性(验收标准:6 小时无崩溃)
 uv run python -m tests.test_lab1_endurance --hours 6
@@ -59,7 +61,7 @@ uv run python -m tests.test_lab1_endurance --hours 6
 uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 ```
 
-依赖:`numpy`、`PyYAML`、`httpx`、`feedparser` 等(见 `pyproject.toml`)。
+依赖:`numpy`、`PyYAML`、`httpx`、`feedparser`、`reportlab` 等(见 `pyproject.toml`)。PDF 中文需要系统字体(macOS 宋体/黑体,Linux Noto CJK)。
 
 ## 已实现
 
@@ -96,12 +98,15 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | pipeline/rank.py | 7 | 两阶段召回,接入 produce_edition |
 | pipeline/golden.py | 7 | 黄金集 ≥50、画像拟合 |
 | render/ranked.py | 7 | 头版 / 深度 / 今日一问 |
+| render/layout/* | 8 | A3 矩阵装箱、分页、1–3 图井 |
+| render/newspaper.py | 8 | digest.md → HTML + PDF |
 | docs/adr/006-embed-backend.md | 7 | 不上 chromadb 的理由 |
+| docs/adr/007-newspaper-grid.md | 8 | 为什么不套用 8.1 流式方案 |
+| docs/lab-08-render.md | 8 | 排版设计笔记 |
 
 ## 仍待实现
 
 - Lab 4 直播抓取:本机扫码 MediaCrawler + 填写 `targeted.creator_id`(fixture 路径已验收)
-- `render/*` 完整报纸 —— Jinja2 → Markdown → PDF(Lab 8;Lab 6/7 已有 digest.md + 体检页 + 个性化版面)
-- `notify/*` —— 邮件 / Telegram 推送(Lab 9;07:30 / 18:30 仍是占位)
+- `notify/*` —— 邮件 / Telegram 推送(Lab 9;`digest.pdf` / `digest.html` 已可当附件)
 - 知乎收藏夹 id 填进 `config/golden.yaml` 后 `golden --refresh`,用你的真收藏替换冷启动 seed
-- 配 `FISHNET_LLM_API_KEY` 后评委从启发式切到 LLM(每期仍 ≤150 次)
+- 配 `FISHNET_LLM_API_KEY` 后评委从启发式切到 LLM(每期仍 ≤150 次);头版综述也会走 LLM

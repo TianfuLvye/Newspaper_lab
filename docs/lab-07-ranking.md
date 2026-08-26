@@ -91,7 +91,7 @@ uv run main.py feedback --edition YYYY-MM-DD-am --n 1 --label 1
 
 ## 留给下一 Lab 的接口
 
-- `data/editions/{期号}/01_headline.md` 等是 Lab 8 的版面文件;PDF 从 `digest.md` 走。
-- `ranking.json` 把编号映到 hash,Lab 8 若做 HTML 反馈按钮,对着这份文件发 `feedback` 即可。
-- 头版「今日综述」仍留给 Lab 8(要对 Top 20 再调一次 LLM)。
+- `data/editions/{期号}/01_headline.md` 等是 Lab 8 的版面文件;PDF 从分版 Markdown 走,`uv run main.py pdf` 只排版。
+- `ranking.json` 把编号映到 hash,Lab 8 HTML 尚未做反馈按钮,对着这份文件发 `feedback` 即可。
+- 头版「今日综述」由 Lab 8 `render/lede.py` 写出。
 - 推送仍是 Lab 9。

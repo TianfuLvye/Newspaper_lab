@@ -16,12 +16,14 @@
 | [lab-05-extract.md](./lab-05-extract.md) | Lab 5 · 正文抽取 | 站点路由 + 见闻 API + robots 个人 override、缓存、质量/RSS 降级 |
 | [lab-06-scheduler.md](./lab-06-scheduler.md) | Lab 6 · 调度 | APScheduler 常驻、早晚出报、used_in、系统体检 |
 | [lab-07-ranking.md](./lab-07-ranking.md) | Lab 7 · 个性化 | 黄金集、两阶段打分、事件折叠、反馈、A/B |
+| [lab-08-render.md](./lab-08-render.md) | Lab 8 · 渲染 | A3 矩阵矩形装箱,digest.md → HTML/PDF |
 | [adr/001-why-not-trendradar.md](./adr/001-why-not-trendradar.md) | ADR-001 | 只借鉴 TrendRadar 设计、不依赖其运行时 |
 | [adr/002-wechat-mp-strategy.md](./adr/002-wechat-mp-strategy.md) | ADR-002 | 公众号走 WeWe RSS，Fishnet 只消费 RSS |
 | [adr/003-mediacrawler-scope.md](./adr/003-mediacrawler-scope.md) | ADR-003 | MediaCrawler 只覆盖指定小红书创作者 |
 | [adr/004-extract-and-robots.md](./adr/004-extract-and-robots.md) | ADR-004 | 正文优先 RSS/API;robots 只放行订阅单篇;热榜不爬回答 |
 | [adr/005-scheduler-runtime.md](./adr/005-scheduler-runtime.md) | ADR-005 | APScheduler 在家跑;残缺出报;Actions 只做心跳 |
 | [adr/006-embed-backend.md](./adr/006-embed-backend.md) | ADR-006 | TF-IDF+SQLite 存向量;不上 chromadb |
+| [adr/007-newspaper-grid.md](./adr/007-newspaper-grid.md) | ADR-007 | A3 矩阵排版,不套用 8.1 流式方案 |
 | [notes/anti-crawling.md](./notes/anti-crawling.md) | Lab 4.2 | 登录态、签名、Playwright 代价、限速 |
 
 ## 后续 Lab 怎么写（模板）

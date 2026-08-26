@@ -318,6 +318,22 @@ def produce_edition(
     )
     digest_path = dest / "digest.md"
     digest_path.write_text(digest, encoding="utf-8")
+    try:
+        from render.newspaper import render_newspaper
+
+        news = render_newspaper(dest, kind=kind, edition_id=eid)
+        log.info(
+            "[%s] pdf=%s html=%s pages=%d t=%.2fs",
+            eid,
+            news.pdf_path,
+            news.html_path,
+            news.layout.n_pages,
+            news.seconds,
+        )
+        if news.error:
+            log.warning("[%s] pdf error: %s", eid, news.error)
+    except Exception as e:
+        log.warning("[%s] newspaper render failed: %s", eid, repr(e))
     for sec in sections:
         if sec.filename:
             (dest / sec.filename).write_text(sec.markdown, encoding="utf-8")
