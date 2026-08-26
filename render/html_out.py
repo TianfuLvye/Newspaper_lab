@@ -43,6 +43,8 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
     text-align: justify; hyphens: auto; overflow: hidden;
     column-gap: 2.2mm; column-rule: 0.15mm solid #222;
   }}
+  .body p {{ margin: 0 0 0.55em; text-align: justify; }}
+  .body p:last-child {{ margin-bottom: 0; }}
   .jump {{ text-align: right; font-size: 7pt; position: absolute; right: 1.4mm; bottom: 0.6mm; }}
   .rule-v, .rule-h {{ position: absolute; background: #222; pointer-events: none; }}
   .photo {{ background: #f0f0f0; color: #444; display: flex; align-items: center;
@@ -59,11 +61,12 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
   .folio-line {{ font-size: 11pt; border-top: 0.28mm solid #111; border-bottom: 0.15mm solid #111;
                 padding: 1.5mm 0; }}
   .inside {{ border: 0.25mm solid #111; }}
-  .inside-head {{ background: #111; color: #fff; text-align: center; font-size: 9.5pt;
-                 letter-spacing: .2em; padding: 1.2mm 0; }}
-  .inside-item {{ padding: 1.2mm 1.6mm 0; font-size: 7.6pt; }}
-  .inside-item .k {{ font-size: 6.2pt; color: #444; display: block; }}
-  .inside-item .p {{ float: right; }}
+  .inside-head {{ background: #111; color: #fff; text-align: center; font-size: 8.4pt;
+                 letter-spacing: .28em; padding: 0.8mm 0; }}
+  .inside-grid {{ column-count: 3; column-gap: 4mm; padding: 1.2mm 2.2mm 0; }}
+  .inside-item {{ padding: 0.3mm 0 1mm; font-size: 7.4pt; break-inside: avoid; }}
+  .inside-item .k {{ font-size: 6.0pt; color: #444; letter-spacing: .08em; }}
+  .inside-item .p {{ float: right; font-variant-numeric: tabular-nums; }}
   .footer {{ position: absolute; font-size: 7pt; color: #444; border-top: 0.2mm solid #111; }}
   @media print {{
     body {{ background: #fff; }}
@@ -157,12 +160,14 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
 
     if b.kind == "inside":
         items = b.teasers or [("内页", "本期其余稿件见后续版面", 2)]
-        bits = ['<div class="inside-head">INSIDE</div>']
+        bits = ['<div class="inside-head">INSIDE</div>', '<div class="inside-grid">']
         for kicker, title, page_no in items:
             bits.append(
-                f'<div class="inside-item"><span class="k">{html.escape(kicker)}</span>'
-                f'<span class="p">{page_no}</span>{html.escape(title[:28])}</div>'
+                f'<div class="inside-item"><span class="p">{page_no}</span>'
+                f'<span class="k">{html.escape(kicker)}</span> '
+                f"{html.escape(title[:22])}</div>"
             )
+        bits.append("</div>")
         return _abs_div("inside", b.mm, "".join(bits))
 
     ch = b.chunk
@@ -217,7 +222,7 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
             bits.append(
                 f'<div class="body" style="left:{tr.x:.2f}mm;top:{tr.y:.2f}mm;'
                 f'width:{tr.w:.2f}mm;height:{tr.h:.2f}mm;column-count:{n};'
-                f'font-size:{types.body_pt:.2f}pt">{html.escape(ch.body)}</div>'
+                f'font-size:{types.body_pt:.2f}pt">{_body_html(ch.body)}</div>'
             )
         if b.jump_to:
             bits.append(f'<div class="jump">下转第 {b.jump_to} 版</div>')
@@ -226,6 +231,16 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
 
 def _rel(inner: MmRect, outer: MmRect) -> MmRect:
     return MmRect(inner.x - outer.x, inner.y - outer.y, inner.w, inner.h)
+
+
+def _body_html(text: str) -> str:
+    paras = [p.strip() for p in (text or "").split("\n\n")]
+    bits = []
+    for p in paras:
+        if not p:
+            continue
+        bits.append("<p>" + html.escape(p).replace("\n", "<br/>") + "</p>")
+    return "".join(bits) or "&nbsp;"
 
 
 def _abs_div(cls: str, r: MmRect, inner: str, extra: str = "") -> str:

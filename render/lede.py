@@ -19,7 +19,11 @@ def first_sentence(text: str, limit: int = 72) -> str:
         i = text.find(sep)
         if 8 <= i <= limit:
             return text[: i + 1]
-    return text[:limit].rstrip() + ("…" if len(text) > limit else "")
+    for sep in ("，", "、", ",", "；", ";"):
+        i = text.find(sep)
+        if 16 <= i <= limit:
+            return text[:i] + "。"
+    return text[:limit].rstrip("…。 ") + "。"
 
 
 def extractive_lede(articles: list[Article], kind: str) -> str:
@@ -34,16 +38,18 @@ def extractive_lede(articles: list[Article], kind: str) -> str:
         return f"本期{label}稿件不足,请先看体检页,再决定要不要当它是一份报。"
     bits = []
     for a in heads:
-        sent = first_sentence(a.body)
-        bits.append(f"{a.title.rstrip('。')}。{sent}" if sent else a.title)
-    extra = [a.title for a in pool if a not in heads][:4]
-    lead = " ".join(bits)[:280]
-    if extra:
-        lead = lead.rstrip("。") + "。此外还有：" + "、".join(t[:18] for t in extra) + "。"
+        sent = first_sentence(a.body, 56)
+        if sent:
+            bits.append(sent if sent.endswith(("。", "！", "？", ".", "!", "?")) else sent + "。")
+        else:
+            bits.append(a.title[:22].rstrip("。") + "。")
+    lead = "".join(bits)
+    extra = [a.title[:14] for a in pool if a not in heads][:3]
+    if extra and len(lead) < 140:
+        lead = lead.rstrip("。") + "。内页还有" + "、".join(extra) + "。"
     label = "今晨" if kind == "am" else "今日"
-    prefix = f"{label}值得先看的几条。"
-    text = (prefix + lead).strip()
-    return text[:240]
+    text = f"{label}：{lead}".strip()
+    return text[:180]
 
 
 def llm_lede(articles: list[Article], kind: str, *, timeout: float = 12.0) -> str | None:

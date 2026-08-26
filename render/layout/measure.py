@@ -125,13 +125,20 @@ def chars_that_fit(
 
 
 def _snap_break(text: str, idx: int) -> int:
+    """尽量在句号/段末切开,避免续文以「级水平。」这种残句开头。"""
     if idx >= len(text):
         return len(text)
-    window = text[max(0, idx - 40) : idx]
-    for sep in ("\n\n", "\n", "。", "！", "？", "；", ".", "!", "?"):
+    if idx <= 0:
+        return 0
+    window = text[max(0, idx - 96) : idx]
+    for sep in ("\n\n", "。", "！", "？", "；"):
         p = window.rfind(sep)
-        if p >= 0 and (len(window) - p) <= 36:
-            return max(0, idx - (len(window) - p - len(sep)))
+        if p >= 0:
+            return idx - (len(window) - p - len(sep))
+    for sep in ("\n", "，", "、", ".", "!", "?", ";", ",", " "):
+        p = window.rfind(sep)
+        if p >= 0:
+            return idx - (len(window) - p - len(sep))
     return idx
 
 

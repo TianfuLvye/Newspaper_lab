@@ -154,6 +154,8 @@ def _parse_section(text: str, section: str, kicker: str, role: str) -> list[Arti
                 )
             )
         for i, (title, body) in enumerate(parts):
+            if "已上头版" in body or "此处不重复全文" in body:
+                continue
             out.append(_story(section, kicker, title, body, i))
         if not parts:
             out.append(

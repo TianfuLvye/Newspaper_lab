@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 from render.layout.engine import density_mode, layout_edition
 from render.layout.grid import CellRect, MmRect, PageGeom
 from render.layout.images import classify, plan_image_slots
-from render.layout.measure import chars_that_fit, column_count, wrap_text
+from render.layout.measure import chars_that_fit, column_count, wrap_text, split_body
 from render.layout.model import Article, ImageSpec
 from render.layout.pack import MaxRects, no_overlaps
 from render.lede import extractive_lede
@@ -90,6 +90,9 @@ check("宽块切成竖栏", column_count(120) >= 2, str(column_count(120)))
 from render.layout.measure import column_rects
 crs = column_rects(MmRect(0, 0, 180, 80), 4)
 check("竖栏比整块窄", len(crs) == 4 and crs[0].w < 50, str(crs[0].w if crs else None))
+sample = "甲" * 12 + "。乙" * 40 + "。"
+head, tail = split_body(sample, 20)
+check("续文在句号切开", (not tail) or head.endswith("。"), repr(head[-8:]))
 
 print("\n[Lab 8] 长文分页")
 arts = [
@@ -214,6 +217,10 @@ if edition.exists() and (edition / "01_headline.md").exists():
     check("期号", "2026-08-26-am" in meta.edition_id)
     check("头版有稿", any(a.section == "headline" and a.role == "story" for a in parsed))
     check("热榜是整块索引", any(a.section == "hotlist" and a.role == "index" for a in parsed))
+    check(
+        "订阅不重复已上头版",
+        not any(a.role == "story" and "已上头版" in (a.body or "") for a in parsed),
+    )
     lede = extractive_lede(parsed, "am")
     check("抽句综述非空", len(lede) > 20, lede[:40])
 else:
@@ -262,7 +269,17 @@ html = news.html_path.read_text(encoding="utf-8")
 check("白底不是奶油色", "background: #fff" in html)
 check("正文用 CSS 竖栏", "column-count" in html)
 check("头版有 Inside", any(b.kind == "inside" for b in news.layout.pages[0].blocks))
+inside = next(b for b in news.layout.pages[0].blocks if b.kind == "inside")
+check("Inside 是通栏横条", inside.cells.w == 6 and inside.cells.r >= 12, str(inside.cells))
 check("稿件之间有细线", "rule-v" in html or "rule-h" in html)
+check("正文按段落输出", "<p>" in html)
+skinny = [
+    (b.article_id, b.cells.w)
+    for p in news.layout.pages
+    for b in p.blocks
+    if b.kind == "story" and b.cells.w < 2
+]
+check("正文块至少两栏宽", not skinny, str(skinny))
 wide = [
     b.n_text_cols
     for p in news.layout.pages

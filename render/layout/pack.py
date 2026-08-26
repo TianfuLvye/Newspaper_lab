@@ -46,6 +46,15 @@ class MaxRects:
             return None
         return self.occupy(found.c, found.r, found.w, found.h)
 
+    def region_free(self, c: int, r: int, w: int, h: int) -> bool:
+        """指定格子是否完全空着。grow 用这个,不能用 place:place 会跑到别的空洞里。"""
+        if w < 1 or h < 1:
+            return False
+        if c < 0 or r < 0 or c + w > self.cols or r + h > self.rows:
+            return False
+        rect = CellRect(c, r, w, h)
+        return all(not rect.overlaps(u) for u in self.used)
+
     def remaining_area(self) -> int:
         return sum(fr.area for fr in self.free)
 

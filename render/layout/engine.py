@@ -115,9 +115,9 @@ def first_chunk_cap(chunk: Chunk, max_h: int, cols: int) -> tuple[int, int]:
             return 2, max_h
         return cols, min(max_h, 10)
     if sec == "headline" and chunk.article.priority <= 0:
-        return min(6, cols), min(max_h, 5)
+        return min(6, cols), min(max_h, 4)
     if sec == "headline":
-        return 3, min(max_h, 5)
+        return 3, min(max_h, 6)
     if sec == "deepread":
         return 3, min(max_h, 6)
     return 3, min(max_h, 5)
@@ -167,6 +167,7 @@ def estimate_area_cells(chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: in
 class _Attempt:
     block: PlacedBlock
     rest: Chunk | None
+    source: Chunk
 
 
 def layout_edition(
@@ -213,28 +214,24 @@ def layout_edition(
             )
         ]
         max_h = geom.rows - mast_h
-        inside_cells = None
-        if page_i == 0 and max_h >= 5:
-            # 头版右下预留 Inside,类似 WSJ。2 栏 × 4 行。
-            ic = CellRect(geom.cols - 2, geom.rows - 4, 2, 4)
-            if ic.r >= mast_h:
-                try:
-                    packer.occupy(ic.c, ic.r, ic.w, ic.h)
-                    inside_cells = ic
-                    blocks.append(
-                        PlacedBlock(
-                            chunk=None,
-                            cells=ic,
-                            mm=geom.cell_to_mm(ic),
-                            page=page_i,
-                            kind="inside",
-                            section="inside",
-                            article_id="inside",
-                        )
-                    )
-                except ValueError:
-                    inside_cells = None
-        leftover: list[Chunk] = []
+        if page_i == 0 and geom.rows - mast_h >= 6:
+            # 通栏 INSIDE 横条贴在页底,不占右下角——右下角那块会把 F02/F03 撕出 1 栏空洞。
+            band_h = 2
+            ic = CellRect(0, geom.rows - band_h, geom.cols, band_h)
+            packer.occupy(ic.c, ic.r, ic.w, ic.h)
+            max_h = geom.rows - mast_h - band_h
+            blocks.append(
+                PlacedBlock(
+                    chunk=None,
+                    cells=ic,
+                    mm=geom.cell_to_mm(ic),
+                    page=page_i,
+                    kind="inside",
+                    section="inside",
+                    article_id="inside",
+                )
+            )
+        attempts: list[_Attempt] = []
         progressed = True
         work = list(queue)
         while progressed:
@@ -245,12 +242,31 @@ def layout_edition(
                 if attempt is None:
                     nxt.append(ch)
                     continue
-                blocks.append(attempt.block)
+                attempts.append(attempt)
+                progressed = True
+            work = nxt
+        _grow_into_holes(packer, attempts, geom, types, page_i)
+        rest_work = [att.rest for att in attempts if att.rest is not None]
+        for att in attempts:
+            att.rest = None
+        progressed = True
+        work = rest_work + work
+        while progressed:
+            progressed = False
+            nxt = []
+            for ch in work:
+                attempt = _try_place(packer, ch, geom, types, page_i, max_h)
+                if attempt is None:
+                    nxt.append(ch)
+                    continue
+                attempts.append(attempt)
                 progressed = True
                 if attempt.rest is not None:
                     nxt.append(attempt.rest)
             work = nxt
         leftover = work
+        for att in attempts:
+            blocks.append(att.block)
 
         used_cells = [b.cells for b in blocks]
         if not no_overlaps(used_cells):
@@ -259,7 +275,6 @@ def layout_edition(
         pages.append(PageLayout(index=page_i, geom=geom, blocks=blocks))
         content_placed = any(b.kind in ("story", "index", "placeholder") for b in blocks)
         if leftover == queue and not content_placed:
-            # 空白页仍放不下:丢掉队首避免死循环
             dropped = leftover.pop(0)
             warnings.append(f"无法为 {dropped.article.id} 分配格子,已跳过")
             queue = leftover
@@ -302,18 +317,47 @@ def _try_place(
         min_w, min_h = 2, 2
         shapes = [(min(6, cap_w), 2), (3, 2), (2, 2)] + shapes
     shapes.append((min(min_w, cap_w), min(min_h, cap_h)))
-    shapes.append((1, min(cap_h, 6)))
     shapes.append((cap_w, min(cap_h, max(4, math.ceil(area / max(cap_w, 1))))))
 
     for w, h in shapes:
-        if w > cap_w or h > cap_h or w < 1 or h < 2:
+        if w > cap_w or h > cap_h or w < min_w or h < 2:
             continue
         cell = packer.place(w, h)
         if cell is None:
             continue
         block, rest = _materialize(chunk, cell, geom, types, page_i)
-        return _Attempt(block, rest)
+        return _Attempt(block, rest, chunk)
     return None
+
+
+def _grow_into_holes(
+    packer: MaxRects,
+    attempts: list[_Attempt],
+    geom: PageGeom,
+    types: TypeSpec,
+    page_i: int,
+) -> None:
+    """把相邻空格吸进已放上的稿,消灭 1 栏缝和页底空洞。"""
+    changed = True
+    guard = 0
+    while changed and guard < 36:
+        guard += 1
+        changed = False
+        for att in attempts:
+            cell = att.block.cells
+            grew: CellRect | None = None
+            if packer.region_free(cell.c + cell.w, cell.r, 1, cell.h):
+                packer.occupy(cell.c + cell.w, cell.r, 1, cell.h)
+                grew = CellRect(cell.c, cell.r, cell.w + 1, cell.h)
+            elif packer.region_free(cell.c, cell.r + cell.h, cell.w, 1):
+                packer.occupy(cell.c, cell.r + cell.h, cell.w, 1)
+                grew = CellRect(cell.c, cell.r, cell.w, cell.h + 1)
+            if grew is None:
+                continue
+            block, rest = _materialize(att.source, grew, geom, types, page_i)
+            att.block = block
+            att.rest = rest
+            changed = True
 
 
 def _materialize(

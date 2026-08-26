@@ -170,7 +170,7 @@ def _draw_inside(
     page_h_pt: float,
 ) -> None:
     r = block.mm
-    bar_h = 6.2
+    bar_h = 5.4
     c.setFillColor(INK)
     c.rect(
         mm_to_pt(r.x),
@@ -181,10 +181,10 @@ def _draw_inside(
         stroke=0,
     )
     c.setFillColor(white)
-    c.setFont(title_font, 9.5)
-    c.drawCentredString(mm_to_pt(r.x + r.w / 2), _y(page_h_pt, r.y + 4.6), "INSIDE")
+    c.setFont(title_font, 8.6)
+    c.drawCentredString(mm_to_pt(r.x + r.w / 2), _y(page_h_pt, r.y + 3.9), "INSIDE")
     c.setStrokeColor(INK)
-    c.setLineWidth(0.6)
+    c.setLineWidth(0.55)
     c.rect(
         mm_to_pt(r.x),
         _y(page_h_pt, r.bottom),
@@ -193,22 +193,29 @@ def _draw_inside(
         fill=0,
         stroke=1,
     )
-    y = r.y + bar_h + 4.5
     items = block.teasers or [("内页", "本期其余稿件见后续版面", 2)]
-    for kicker, title, page_no in items:
-        if y > r.bottom - 4:
+    n_cols = 3 if r.w > 160 else 1
+    col_w = r.w / n_cols
+    body = MmRect(r.x, r.y + bar_h, r.w, max(4.0, r.h - bar_h))
+    per_col = max(1, (len(items) + n_cols - 1) // n_cols)
+    for i, (kicker, title, page_no) in enumerate(items):
+        col = i // per_col
+        row = i % per_col
+        if col >= n_cols:
             break
-        c.setFont(body_font, 6.2)
+        x = body.x + col * col_w
+        y = body.y + 4.2 + row * 10.2
+        if y > r.bottom - 3:
+            continue
+        c.setFont(body_font, 6.0)
         c.setFillColor(MUTED)
-        c.drawString(mm_to_pt(r.x + 1.6), _y(page_h_pt, y), kicker[:8])
-        y += 3.4
+        c.drawString(mm_to_pt(x + 2.0), _y(page_h_pt, y), kicker[:8])
         c.setFillColor(INK)
-        c.setFont(title_font, 7.6)
-        short = title[:22] + ("…" if len(title) > 22 else "")
-        c.drawString(mm_to_pt(r.x + 1.6), _y(page_h_pt, y), short)
-        c.setFont(body_font, 7.2)
-        c.drawRightString(mm_to_pt(r.right - 1.6), _y(page_h_pt, y), f"{page_no}")
-        y += 5.6
+        c.setFont(title_font, 7.2)
+        short = title[:18] + ("…" if len(title) > 18 else "")
+        c.drawString(mm_to_pt(x + 2.0), _y(page_h_pt, y + 3.6), short)
+        c.setFont(body_font, 7.0)
+        c.drawRightString(mm_to_pt(x + col_w - 2.2), _y(page_h_pt, y + 3.6), f"{page_no}")
 
 
 def _draw_article(
