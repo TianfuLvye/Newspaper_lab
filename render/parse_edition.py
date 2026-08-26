@@ -21,8 +21,10 @@ _HTML_IMG_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\'][^>]*>', re.I)
 _H1 = re.compile(r"^# (.+)$", re.M)
 _FN = re.compile(r"^F(\d+)\s*·\s*(.+)$")
 
+# 预算只当安全阀:真超了会在段落边界裁,并且印出「未完」指路标记;
+# 绝不在句子中间悄悄锯掉。
 _MAX_CHARS = {
-    "headline": 2400,
+    "headline": 4000,
     "deepread": 3600,
     "critical": 2200,
     "subscribe": 1400,
@@ -30,7 +32,7 @@ _MAX_CHARS = {
     "health": 6000,
 }
 _MAX_PAGES = {
-    "headline": 2,
+    "headline": 3,
     "deepread": 3,
     "critical": 2,
     "subscribe": 2,
@@ -246,6 +248,10 @@ def _clean_index_body(text: str) -> str:
     lines = []
     for line in text.splitlines():
         s = line.strip()
+        if s.startswith("## ") and not s.startswith("### "):
+            # 体检报告的「容量 / 各网 24h」这类小节标题留作加粗段,否则报告读成一坨
+            lines.extend(["", f"**{s[3:].strip()}**", ""])
+            continue
         if s.startswith("#"):
             continue
         if s.startswith(">"):

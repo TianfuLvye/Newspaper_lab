@@ -52,6 +52,9 @@ class Chunk:
     images: list[ImageSpec]
     part: int = 0
     truncated: bool = False
+    # True = 原稿在 max_chars 预算处被裁过;最后一块必须把截断印出来,
+    # 否则读者看到的末尾是一句被悄悄锯掉的话。
+    over_budget: bool = False
 
 
 @dataclass
@@ -78,6 +81,7 @@ class PlacedBlock:
     section: str = ""
     article_id: str = ""
     n_text_cols: int = 1
+    title_capped: bool = False
     teasers: list[tuple[str, str, int]] = field(default_factory=list)
 
 

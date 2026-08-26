@@ -131,7 +131,9 @@ def first_chunk_cap(chunk: Chunk, max_h: int, cols: int) -> tuple[int, int]:
 
 def prefer_for(section: str, part: int) -> str:
     if part > 0:
-        return "wide"
+        # 续文按尾巴真实长度估面积、优先方柱块:几条「上接」在内页并排站,
+        # 而不是每条都拉一条半空的通栏缎带。
+        return "square"
     if section == "headline":
         return "wide"
     if section in ("hotlist", "health"):
@@ -174,6 +176,24 @@ class _Attempt:
     block: PlacedBlock
     rest: Chunk | None
     source: Chunk
+    harvested: bool = False
+
+
+def _budget_slice(body: str, max_chars: int) -> tuple[str, bool]:
+    """按字符预算裁稿。超预算时在段落/句子边界下刀,并打出 over_budget 旗标,
+    让最后一块印出「未完」指路——绝不在一句中间悄悄截断。"""
+    if len(body) <= max_chars:
+        return body, False
+    cut = body.rfind("\n\n", 0, max_chars)
+    if cut < max_chars * 0.5:
+        sent = max(
+            body.rfind(p, 0, max_chars) for p in ("。", "！", "？", "；", "!", "?")
+        )
+        if sent > cut:
+            cut = sent + 1
+    if cut < max_chars * 0.5:
+        cut = max_chars
+    return body[:cut].rstrip(), True
 
 
 def layout_edition(
@@ -194,10 +214,10 @@ def layout_edition(
     elif density == "briefing":
         warnings.append("本期偏薄,已合并留白,空栏目仍印占位。")
 
-    queue = [
-        Chunk(a, (a.body or "")[: a.max_chars], list(a.images[:3]), 0)
-        for a in ordered
-    ]
+    queue: list[Chunk] = []
+    for a in ordered:
+        body0, over = _budget_slice(a.body or "", a.max_chars)
+        queue.append(Chunk(a, body0, list(a.images[:3]), 0, over_budget=over))
     pages: list[PageLayout] = []
     n_placeholder = sum(1 for a in articles if a.empty or a.role == "placeholder")
 
@@ -207,12 +227,14 @@ def layout_edition(
         page_i = len(pages)
         packer = MaxRects(geom.cols, geom.rows)
         mast_h = 2 if page_i == 0 else 1
-        packer.occupy(0, 0, geom.cols, mast_h)
+        mast_cells = CellRect(0, 0, geom.cols, mast_h)
+        packer.occupy(mast_cells.c, mast_cells.r, mast_cells.w, mast_cells.h)
+        reserved: list[CellRect] = [mast_cells]
         blocks: list[PlacedBlock] = [
             PlacedBlock(
                 chunk=None,
-                cells=CellRect(0, 0, geom.cols, mast_h),
-                mm=geom.cell_to_mm(CellRect(0, 0, geom.cols, mast_h)),
+                cells=mast_cells,
+                mm=geom.cell_to_mm(mast_cells),
                 page=page_i,
                 kind="masthead" if page_i == 0 else "folio",
                 section="masthead",
@@ -225,6 +247,7 @@ def layout_edition(
             band_h = 2
             ic = CellRect(0, geom.rows - band_h, geom.cols, band_h)
             packer.occupy(ic.c, ic.r, ic.w, ic.h)
+            reserved.append(ic)
             max_h = geom.rows - mast_h - band_h
             blocks.append(
                 PlacedBlock(
@@ -238,38 +261,38 @@ def layout_edition(
                 )
             )
         attempts: list[_Attempt] = []
-        progressed = True
-        work = list(queue)
-        while progressed:
-            progressed = False
-            nxt: list[Chunk] = []
-            for ch in work:
-                attempt = _try_place(packer, ch, geom, types, page_i, max_h)
-                if attempt is None:
-                    nxt.append(ch)
-                    continue
-                attempts.append(attempt)
-                progressed = True
-            work = nxt
+        work = _place_pass(packer, list(queue), attempts, geom, types, page_i, max_h)
+        # 面积是一次性粗估的,装完全文的块常常虚占格子。让它们缩回真实
+        # 内容大小,再用吐出来的空格补放排在后面的稿。
+        for _ in range(4):
+            if not _compact_attempts(attempts, geom, types, page_i):
+                break
+            packer = _rebuild_packer(geom, reserved, attempts)
+            before = len(work)
+            work = _place_pass(packer, work, attempts, geom, types, page_i, max_h)
+            if len(work) == before:
+                break
         _grow_into_holes(packer, attempts, geom, types, page_i)
-        rest_work = [att.rest for att in attempts if att.rest is not None]
+        rest_work: list[Chunk] = []
         for att in attempts:
-            att.rest = None
-        progressed = True
-        work = rest_work + work
-        while progressed:
-            progressed = False
-            nxt = []
-            for ch in work:
-                attempt = _try_place(packer, ch, geom, types, page_i, max_h)
-                if attempt is None:
-                    nxt.append(ch)
-                    continue
-                attempts.append(attempt)
-                progressed = True
-                if attempt.rest is not None:
-                    nxt.append(attempt.rest)
-            work = nxt
+            if att.rest is not None:
+                rest_work.append(att.rest)
+                att.rest = None
+                att.harvested = True
+        work = _place_pass(
+            packer, rest_work + work, attempts, geom, types, page_i, max_h, chain=True
+        )
+        # 续文按真实尾巴装完后同样可能虚占,再收一轮。
+        for _ in range(4):
+            if not _compact_attempts(attempts, geom, types, page_i):
+                break
+            packer = _rebuild_packer(geom, reserved, attempts)
+            before = len(work)
+            work = _place_pass(
+                packer, work, attempts, geom, types, page_i, max_h, chain=True
+            )
+            if len(work) == before:
+                break
         leftover = work
         for att in attempts:
             blocks.append(att.block)
@@ -340,6 +363,102 @@ def _try_place(
     return None
 
 
+def _place_pass(
+    packer: MaxRects,
+    work: list[Chunk],
+    attempts: list[_Attempt],
+    geom: PageGeom,
+    types: TypeSpec,
+    page_i: int,
+    max_h: int,
+    *,
+    chain: bool = False,
+) -> list[Chunk]:
+    """一轮「能放就放」,直到没有进展。chain=True 时续文尾巴当场接着排(内页)。"""
+    progressed = True
+    while progressed:
+        progressed = False
+        nxt: list[Chunk] = []
+        for ch in work:
+            attempt = _try_place(packer, ch, geom, types, page_i, max_h)
+            if attempt is None:
+                nxt.append(ch)
+                continue
+            attempts.append(attempt)
+            progressed = True
+            if chain and attempt.rest is not None:
+                nxt.append(attempt.rest)
+        work = nxt
+    return work
+
+
+def _rebuild_packer(
+    geom: PageGeom, reserved: list[CellRect], attempts: list[_Attempt]
+) -> MaxRects:
+    """收缩后空格变了,按最新格子重建自由区域。一页块数很少,重建最便宜。"""
+    p = MaxRects(geom.cols, geom.rows)
+    for cell in reserved:
+        p.occupy(cell.c, cell.r, cell.w, cell.h)
+    for att in attempts:
+        cell = att.block.cells
+        p.occupy(cell.c, cell.r, cell.w, cell.h)
+    return p
+
+
+def _compact_attempts(
+    attempts: list[_Attempt],
+    geom: PageGeom,
+    types: TypeSpec,
+    page_i: int,
+) -> bool:
+    """装完全文的块把虚占的格子吐出来(缩 1 栏宽或 1 行高,直到再缩就掉字)。
+
+    只动「字已装完」的块:续文还在或已被收走的块,缩了会把已排版的尾巴
+    截出一截新续文,和后面那块对不上。占位块故意撑场面,也不动。
+    """
+    changed = False
+    for att in attempts:
+        ch = att.block.chunk
+        if ch is None or att.rest is not None or att.harvested:
+            continue
+        if ch.body != att.source.body or att.source.article.empty:
+            continue
+        while True:
+            cell = att.block.cells
+            shrunk: PlacedBlock | None = None
+            for trial in (
+                CellRect(cell.c, cell.r, cell.w - 1, cell.h),
+                CellRect(cell.c + 1, cell.r, cell.w - 1, cell.h),
+                CellRect(cell.c, cell.r, cell.w, cell.h - 1),
+                CellRect(cell.c, cell.r + 1, cell.w, cell.h - 1),
+            ):
+                if (
+                    trial.w < 2
+                    or trial.h < 2
+                    or trial.c < 0
+                    or trial.r < 0
+                    or trial.c + trial.w > geom.cols
+                    or trial.r + trial.h > geom.rows
+                ):
+                    continue
+                block, rest = _materialize(att.source, trial, geom, types, page_i)
+                if rest is not None or block.chunk is None:
+                    continue
+                if block.chunk.body != att.source.body:
+                    continue
+                if block.title_capped and not att.block.title_capped:
+                    continue
+                if len(block.image_boxes) < len(att.block.image_boxes):
+                    continue
+                shrunk = block
+                break
+            if shrunk is None:
+                break
+            att.block = shrunk
+            changed = True
+    return changed
+
+
 def _grow_into_holes(
     packer: MaxRects,
     attempts: list[_Attempt],
@@ -354,8 +473,9 @@ def _grow_into_holes(
         guard += 1
         changed = False
         for att in attempts:
-            # 已经装完的短稿再拉高,只会把几句话均摊进六栏。热榜还能多印几条。
-            if att.rest is None and att.block.kind != "index":
+            # 没装完的稿才值得长:多一格就能多印几行。已经装完的稿(包括条目
+            # 印完的 index)再拉高,只会把几句话均摊进更多栏、拉出一块空白框。
+            if att.rest is None:
                 continue
             cell = att.block.cells
             grew: CellRect | None = None
@@ -387,6 +507,7 @@ def _materialize(
     body_space = inner
     images = list(chunk.images) if chunk.part == 0 else []
 
+    title_capped = False
     if chunk.part == 0:
         ts = title_size(
             art.section,
@@ -397,7 +518,9 @@ def _materialize(
         th = estimate_title_height_mm(art.title or art.kicker or " ", inner.w, ts, types)
         if art.byline:
             th += 4.0
-        th = min(th, max(14.0, inner.h * 0.48))
+        cap = max(14.0, inner.h * 0.48)
+        title_capped = th > cap + 1e-6
+        th = min(th, cap)
         title_rect, body_space = inner.split_top(th)
     elif chunk.part > 0:
         cont_h = 8.0
@@ -449,7 +572,13 @@ def _materialize(
                 images=overflow_imgs,
                 part=chunk.part + 1,
                 truncated=False,
+                over_budget=chunk.over_budget,
             )
+    elif chunk.over_budget:
+        # 预算内文字已排完,但原稿在 max_chars 处被裁过:把截断印出来指路,
+        # 不能让读者以为文章就到这里。
+        truncated = True
+        head = head.rstrip() + "\n\n（未完,全文见本期 items/ 或原文。）"
 
     kind = "placeholder" if art.empty else ("index" if art.role == "index" else "story")
     block = PlacedBlock(
@@ -464,6 +593,7 @@ def _materialize(
         section=art.section,
         article_id=art.id,
         n_text_cols=n_cols,
+        title_capped=title_capped,
     )
     return block, rest
 
@@ -477,9 +607,13 @@ def _resolve_jumps(pages: list[PageLayout]) -> None:
             loc[(b.article_id, b.chunk.part)] = b
     for (aid, part), b in loc.items():
         nxt = loc.get((aid, part + 1))
-        if nxt is not None and nxt.page != b.page:
+        if nxt is None:
+            continue
+        # 续文永远要知道自己从哪来:跨版写「上接第 N 版」,同版写「上接本版」,
+        # 由渲染层按 jump_from 与本页页码的关系措辞。下转只跨页才写。
+        nxt.jump_from = b.page + 1
+        if nxt.page != b.page:
             b.jump_to = nxt.page + 1
-            nxt.jump_from = b.page + 1
 
 
 def _fill_inside(pages: list[PageLayout]) -> None:

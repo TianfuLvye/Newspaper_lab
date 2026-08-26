@@ -5,9 +5,9 @@ import html
 from pathlib import Path
 
 from render.layout.grid import MmRect
-from render.layout.measure import TypeSpec, title_size
+from render.layout.measure import TypeSpec, char_em, title_size
 from render.layout.model import LayoutResult, PageLayout, PlacedBlock
-from render.markup import inline_md_to_html
+from render.markup import MdTable, has_md_table, inline_md_to_html, split_md_segments
 
 
 def write_html(layout: LayoutResult, path: Path) -> Path:
@@ -47,6 +47,14 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
   }}
   .body p {{ margin: 0 0 0.55em; text-align: justify; }}
   .body p:last-child {{ margin-bottom: 0; }}
+  .mdtbl {{
+    width: 100%; border-collapse: collapse; font-size: 6.3pt; line-height: 1.22;
+    column-span: all; margin: 0.6mm 0 1.2mm; table-layout: fixed; text-align: left;
+  }}
+  .mdtbl th, .mdtbl td {{ padding: 0.45mm 0.7mm; vertical-align: top; overflow-wrap: break-word; }}
+  .mdtbl thead th {{ border-top: 0.35mm solid #111; border-bottom: 0.2mm solid #111; font-weight: 700; }}
+  .mdtbl tbody td {{ border-top: 0.1mm solid #c9c9c9; }}
+  .mdtbl tbody tr:last-child td {{ border-bottom: 0.35mm solid #111; }}
   .jump {{ text-align: right; font-size: 7pt; position: absolute; right: 1.4mm; bottom: 0.6mm; }}
   .rule-v, .rule-h {{ position: absolute; background: #222; pointer-events: none; }}
   .photo {{ background: #f0f0f0; color: #444; display: flex; align-items: center;
@@ -176,6 +184,7 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
     kicker = (ch.article.kicker if ch else b.section) or b.section
     if ch and ch.part > 0:
         kicker = f"{kicker} · 续"
+    jump_src = "本版" if b.jump_from in (None, b.page + 1) else f"第 {b.jump_from} 版"
     bits: list[str] = []
     kick_box = b.title_rect or MmRect(
         b.mm.x + types.pad_mm, b.mm.y + types.pad_mm, max(10.0, b.mm.w - types.pad_mm * 2), types.kicker_bar_mm
@@ -188,7 +197,7 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
     if ch:
         title = ch.article.title
         if ch.part > 0:
-            title = f"（上接第 {b.jump_from or '?'} 版 · {ch.article.fn or ch.article.id}）"
+            title = f"（上接{jump_src} · {ch.article.fn or ch.article.id}）"
         ts = title_size(
             ch.article.section,
             ch.part,
@@ -221,9 +230,12 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
         if ch.body and b.text_rect is not None:
             n = max(1, b.n_text_cols)
             tr = _rel(b.text_rect, b.mm)
+            # 带表格的正文改用 balance:表格跨栏通排,前文先在栏间均分,
+            # 免得第一栏塞到底、第二栏空着迎接表格。
+            fill = "column-fill:balance;" if has_md_table(ch.body) else ""
             bits.append(
                 f'<div class="body" style="left:{tr.x:.2f}mm;top:{tr.y:.2f}mm;'
-                f'width:{tr.w:.2f}mm;height:{tr.h:.2f}mm;column-count:{n};'
+                f'width:{tr.w:.2f}mm;height:{tr.h:.2f}mm;column-count:{n};{fill}'
                 f'font-size:{types.body_pt:.2f}pt">{_body_html(ch.body)}</div>'
             )
         if b.jump_to:
@@ -236,13 +248,49 @@ def _rel(inner: MmRect, outer: MmRect) -> MmRect:
 
 
 def _body_html(text: str) -> str:
-    paras = [p.strip() for p in (text or "").split("\n\n")]
     bits = []
-    for p in paras:
-        if not p:
+    for kind, seg in split_md_segments(text or ""):
+        if kind == "table":
+            bits.append(_table_html(seg))
             continue
-        bits.append("<p>" + inline_md_to_html(html.escape(p)).replace("\n", "<br/>") + "</p>")
+        for p in str(seg).split("\n\n"):
+            p = p.strip()
+            if not p:
+                continue
+            bits.append("<p>" + inline_md_to_html(html.escape(p)).replace("\n", "<br/>") + "</p>")
     return "".join(bits) or "&nbsp;"
+
+
+def _table_html(tbl: MdTable) -> str:
+    """管道表格 → 真表格。列宽按内容自然字宽比例分,数字列按分隔线右对齐。"""
+    n_cols = max(1, len(tbl.header))
+
+    def cell_at(row: list[str], j: int) -> str:
+        return row[j] if j < len(row) else ""
+
+    nat = []
+    for j in range(n_cols):
+        cells = [tbl.header[j] if j < len(tbl.header) else ""]
+        cells += [cell_at(r, j) for r in tbl.rows]
+        nat.append(max(2.0, max(sum(char_em(ch) for ch in c.replace("`", "")) for c in cells)))
+    total = sum(nat)
+    colgroup = "".join(f'<col style="width:{100.0 * w / total:.1f}%"/>' for w in nat)
+
+    def cell_html(tag: str, text: str, j: int) -> str:
+        a = tbl.aligns[j] if j < len(tbl.aligns) else "l"
+        style = f' style="text-align:{"right" if a == "r" else ("center" if a == "c" else "left")}"'
+        content = inline_md_to_html(html.escape(text.replace("`", "")))
+        return f"<{tag}{style}>{content}</{tag}>"
+
+    head = "".join(cell_html("th", cell_at(tbl.header, j), j) for j in range(n_cols))
+    rows = "".join(
+        "<tr>" + "".join(cell_html("td", cell_at(r, j), j) for j in range(n_cols)) + "</tr>"
+        for r in tbl.rows
+    )
+    return (
+        f'<table class="mdtbl"><colgroup>{colgroup}</colgroup>'
+        f"<thead><tr>{head}</tr></thead><tbody>{rows}</tbody></table>"
+    )
 
 
 def _abs_div(cls: str, r: MmRect, inner: str, extra: str = "") -> str:

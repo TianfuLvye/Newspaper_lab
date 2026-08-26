@@ -1,6 +1,7 @@
 """把 LayoutResult 画成 A3 PDF。白底、细线分栏、竖栏正文——华尔街日报那一套。"""
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 from reportlab.lib.colors import Color, HexColor, white
@@ -18,7 +19,7 @@ from render.layout.measure import (
     wrap_text,
 )
 from render.layout.model import LayoutResult, PageLayout, PlacedBlock
-from render.markup import strip_inline_md
+from render.markup import MdTable, split_md_segments, strip_inline_md
 
 INK = HexColor("#111111")
 MUTED = HexColor("#444444")
@@ -45,8 +46,8 @@ def _y(page_h_pt: float, top_mm: float) -> float:
     return page_h_pt - mm_to_pt(top_mm)
 
 
-def _hline(c: canvas.Canvas, x1: float, x2: float, y_mm: float, page_h_pt: float, w: float = 0.45) -> None:
-    c.setStrokeColor(HAIR)
+def _hline(c: canvas.Canvas, x1: float, x2: float, y_mm: float, page_h_pt: float, w: float = 0.45, color=None) -> None:
+    c.setStrokeColor(color or HAIR)
     c.setLineWidth(w)
     c.line(mm_to_pt(x1), _y(page_h_pt, y_mm), mm_to_pt(x2), _y(page_h_pt, y_mm))
 
@@ -248,7 +249,9 @@ def _draw_article(
     if block.title_rect is not None:
         title = ch.article.title
         if ch.part > 0:
-            title = f"（上接第 {block.jump_from or '?'} 版 · {ch.article.fn or ch.article.id}）"
+            frm = block.jump_from
+            src = f"第 {frm} 版" if frm is not None and frm != block.page + 1 else "本版"
+            title = f"（上接{src} · {ch.article.fn or ch.article.id}）"
         ts = title_size(
             ch.article.section,
             ch.part,
@@ -294,7 +297,7 @@ def _draw_article(
             c.drawCentredString(ix + iw / 2, iy + ih / 2, cap[:18])
 
     if block.text_rect is not None and ch.body:
-        _draw_columns(
+        _draw_flow(
             c,
             ch.body,
             block.text_rect,
@@ -303,6 +306,7 @@ def _draw_article(
             types.line_ratio,
             page_h_pt,
             n_cols=block.n_text_cols or column_count(block.text_rect.w),
+            title_font=title_font,
         )
 
     if block.jump_to:
@@ -357,6 +361,190 @@ def _draw_columns(
                     justify=not nxt_empty,
                 )
             cursor += lh
+
+
+def _draw_flow(
+    c: canvas.Canvas,
+    text: str,
+    rect: MmRect,
+    font: str,
+    size_pt: float,
+    line_ratio: float,
+    page_h_pt: float,
+    n_cols: int,
+    title_font: str,
+) -> None:
+    """正文 + 管道表格的混合流。表格通栏通排,前文在各栏间均分——
+    和 HTML 的 column-fill:balance + column-span:all 同一个意思。"""
+    segs = split_md_segments(text)
+    if not any(kind == "table" for kind, _ in segs):
+        _draw_columns(c, text, rect, font, size_pt, line_ratio, page_h_pt, n_cols)
+        return
+    cur = rect
+    for i, (kind, seg) in enumerate(segs):
+        if cur.h < 8:
+            break
+        if kind == "table":
+            used = _draw_table(c, seg, cur, font, title_font, page_h_pt)
+            cur = MmRect(cur.x, cur.y + used + 1.6, cur.w, max(0.0, cur.h - used - 1.6))
+        else:
+            more_table = any(k == "table" for k, _ in segs[i + 1 :])
+            used = _draw_text_segment(
+                c,
+                str(seg),
+                cur,
+                font,
+                size_pt,
+                line_ratio,
+                page_h_pt,
+                n_cols,
+                balance=more_table,
+            )
+            cur = MmRect(cur.x, cur.y + used + 1.2, cur.w, max(0.0, cur.h - used - 1.2))
+
+
+def _draw_text_segment(
+    c: canvas.Canvas,
+    text: str,
+    rect: MmRect,
+    font: str,
+    size_pt: float,
+    line_ratio: float,
+    page_h_pt: float,
+    n_cols: int,
+    *,
+    balance: bool,
+) -> float:
+    """排一段纯文本,返回实际吃掉的高度。balance=True 时均分到各栏
+    (后面紧跟通栏表格,免得首栏塞到底、其余栏空着)。"""
+    cols = column_rects(rect, max(1, n_cols))
+    col_w = cols[0].w
+    lines = wrap_text(strip_inline_md(text), col_w, size_pt)
+    lh = line_height_mm(size_pt, line_ratio)
+    per = max(1, int(rect.h / lh))
+    if balance and lines:
+        per = max(1, min(per, math.ceil(len(lines) / len(cols))))
+    idx = 0
+    c.setFillColor(INK)
+    c.setFont(font, size_pt)
+    used = 0
+    for i, col in enumerate(cols):
+        if i > 0:
+            x_rule = (cols[i - 1].right + col.x) / 2
+            _vline(c, x_rule, col.y + 1.0, col.bottom - 1.0, page_h_pt, 0.22)
+        chunk_lines = lines[idx : idx + per]
+        idx += per
+        cursor = col.y + size_pt * MM_PER_PT * 0.88
+        drawn = 0
+        for j, line in enumerate(chunk_lines):
+            if cursor > col.bottom - 0.3:
+                break
+            nxt_empty = j + 1 >= len(chunk_lines) or chunk_lines[j + 1] == ""
+            if line:
+                _draw_line(
+                    c,
+                    line,
+                    col.x,
+                    cursor,
+                    col.w,
+                    font,
+                    size_pt,
+                    page_h_pt,
+                    justify=not nxt_empty,
+                )
+            cursor += lh
+            drawn += 1
+        used = max(used, drawn)
+    return used * lh
+
+
+def _cell_em(text: str) -> float:
+    return sum(char_em(ch) for ch in text)
+
+
+def _fit_cell(text: str, width_mm: float, size_pt: float) -> str:
+    if _cell_em(text) * size_pt * MM_PER_PT <= width_mm:
+        return text
+    while text and _cell_em(text + "…") * size_pt * MM_PER_PT > width_mm:
+        text = text[:-1]
+    return text + "…" if text else ""
+
+
+def _draw_table(
+    c: canvas.Canvas,
+    tbl: MdTable,
+    rect: MmRect,
+    body_font: str,
+    title_font: str,
+    page_h_pt: float,
+) -> float:
+    """管道表格画成通栏细线表:无竖线、头尾粗线、行间发丝线。返回吃掉的高度。"""
+    size_pt = 6.2
+    row_h = line_height_mm(size_pt, 1.22) + 0.9
+    n_cols = max(1, len(tbl.header))
+
+    def cell_at(row: list[str], j: int) -> str:
+        return row[j] if j < len(row) else ""
+
+    def clean(text: str) -> str:
+        return strip_inline_md(text.replace("`", "")).strip()
+
+    nat = []
+    for j in range(n_cols):
+        cells = [cell_at(tbl.header, j)] + [cell_at(r, j) for r in tbl.rows]
+        nat.append(max(2.0, max(_cell_em(clean(x)) for x in cells)))
+    total = sum(nat)
+    widths = [rect.w * w / total for w in nat]
+    xs = [rect.x]
+    for w in widths:
+        xs.append(xs[-1] + w)
+
+    rowline = HexColor("#c9c9c9")
+    y = rect.y + 0.4
+    _hline(c, rect.x, rect.right, y, page_h_pt, 0.4)
+    y = _draw_table_row(
+        c, tbl.header, tbl.aligns, xs, widths, y + 0.9, row_h, title_font, size_pt, page_h_pt, clean
+    )
+    _hline(c, rect.x, rect.right, y, page_h_pt, 0.25)
+    for r in tbl.rows:
+        if y + row_h > rect.bottom + 0.01:
+            break
+        y = _draw_table_row(
+            c, r, tbl.aligns, xs, widths, y, row_h, body_font, size_pt, page_h_pt, clean
+        )
+        _hline(c, rect.x, rect.right, y, page_h_pt, 0.12, color=rowline)
+    _hline(c, rect.x, rect.right, y, page_h_pt, 0.4)
+    return y - rect.y + 0.4
+
+
+def _draw_table_row(
+    c: canvas.Canvas,
+    cells: list[str],
+    aligns: list[str],
+    xs: list[float],
+    widths: list[float],
+    y: float,
+    row_h: float,
+    font: str,
+    size_pt: float,
+    page_h_pt: float,
+    clean,
+) -> float:
+    c.setFont(font, size_pt)
+    c.setFillColor(INK)
+    baseline = y + size_pt * MM_PER_PT * 0.82 + 0.45
+    for j in range(len(widths)):
+        txt = _fit_cell(clean(cells[j] if j < len(cells) else ""), widths[j] - 1.4, size_pt)
+        if not txt:
+            continue
+        a = aligns[j] if j < len(aligns) else "l"
+        if a == "r":
+            c.drawRightString(mm_to_pt(xs[j + 1] - 0.7), _y(page_h_pt, baseline), txt)
+        elif a == "c":
+            c.drawCentredString(mm_to_pt((xs[j] + xs[j + 1]) / 2), _y(page_h_pt, baseline), txt)
+        else:
+            c.drawString(mm_to_pt(xs[j] + 0.7), _y(page_h_pt, baseline), txt)
+    return y + row_h
 
 
 def _draw_line(
