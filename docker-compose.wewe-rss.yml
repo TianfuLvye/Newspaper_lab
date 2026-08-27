@@ -15,6 +15,10 @@ services:
       DATABASE_TYPE: sqlite
       # 管理端/API 授权码；在 .env 里设 WEWE_AUTH_CODE，勿用弱密码提交到 Git
       AUTH_CODE: ${WEWE_AUTH_CODE:-change-me-in-env}
+      # Fishnet serve 已在 05:00–06:00 / 16:00–17:00 窗口刷号。
+      # 不要再用默认每天 5:35/17:35，否则会和 Fishnet 叠打。
+      # 仅当 serve 没开时救急：每周日 03:17。
+      CRON_EXPRESSION: "17 3 * * 0"
       # 可选:全文模式(更慢、占内存)
       # FEED_MODE: fulltext
     volumes:

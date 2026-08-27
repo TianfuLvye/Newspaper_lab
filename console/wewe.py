@@ -1,12 +1,35 @@
-"""WeWe RSS 客户端：列源、用文章链接订阅公众号。"""
+"""WeWe RSS 客户端：列源、用文章链接订阅公众号、请 WeWe 去微信拉稿。"""
 from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 from urllib.parse import quote
 
 import httpx
+
+_MP_ID = re.compile(r"(MP_WXS_\d+)", re.IGNORECASE)
+
+WECHAT_EMPTY_HINT = (
+    "WeWe 已通但 Atom 里没有文章。到 http://127.0.0.1:4000 对该号点「获取历史文章」，"
+    "并确认读书号不是失效/小黑屋。"
+)
+
+
+def mp_id_from_url(url: str) -> str | None:
+    m = _MP_ID.search(url or "")
+    return m.group(1).upper() if m else None
+
+
+def _humanize_wewe_error(message: str) -> str:
+    if "暂无可用读书账号" in message or "读书账号" in message:
+        return (
+            "WeWe 没有可用的微信读书账号（当前号是「失效」）。"
+            "打开 http://127.0.0.1:4000 重新扫码登录并启用，再点采集。"
+            "不必重启 WeWe 容器。"
+        )
+    return message
 
 
 class WeweError(RuntimeError):
@@ -69,13 +92,24 @@ class WeweClient:
             headers["Authorization"] = self.auth_code
         return headers
 
-    def _trpc(self, procedure: str, payload: Any, *, mutation: bool) -> Any:
+    def _trpc(
+        self,
+        procedure: str,
+        payload: Any,
+        *,
+        mutation: bool,
+        timeout: float | None = None,
+    ) -> Any:
         try:
+            extra = {}
+            if timeout is not None:
+                extra["timeout"] = timeout
             if mutation:
                 r = self._client.post(
                     f"/trpc/{procedure}",
                     json={"json": payload},
                     headers=self._headers(),
+                    **extra,
                 )
             else:
                 encoded = quote(
@@ -85,6 +119,7 @@ class WeweClient:
                 r = self._client.get(
                     f"/trpc/{procedure}?input={encoded}",
                     headers=self._headers(),
+                    **extra,
                 )
         except httpx.RequestError as e:
             raise WeweError(
@@ -99,10 +134,15 @@ class WeweClient:
                     f"WeWe HTTP {r.status_code}: {r.text[:300]}",
                     status=r.status_code,
                 ) from None
-            _unwrap_trpc(body)
+            try:
+                _unwrap_trpc(body)
+            except WeweError as e:
+                raise WeweError(_humanize_wewe_error(str(e)), status=r.status_code) from e
             raise WeweError(f"WeWe HTTP {r.status_code}", status=r.status_code)
         try:
             return _unwrap_trpc(r.json())
+        except WeweError as e:
+            raise WeweError(_humanize_wewe_error(str(e))) from e
         except (ValueError, json.JSONDecodeError, TypeError, KeyError) as e:
             raise WeweError(f"WeWe 响应无法解析: {e}") from e
 
@@ -142,6 +182,17 @@ class WeweClient:
             "status": 1,
         }
         return self._trpc("feed.add", payload, mutation=True) or payload
+
+    def refresh_articles(self, mp_id: str) -> None:
+        """等 WeWe 从微信把这个号的新稿写入本地库。超时放宽：上游可能要几十秒。"""
+        if not mp_id:
+            raise WeweError("缺少公众号 id")
+        self._trpc(
+            "feed.refreshArticles",
+            {"mpId": mp_id},
+            mutation=True,
+            timeout=120.0,
+        )
 
     def list_feeds(self) -> list[dict]:
         """优先 GET /feeds/（不必 AUTH_CODE），失败再走 tRPC feed.list。"""

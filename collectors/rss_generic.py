@@ -19,6 +19,16 @@ from core.text import html_to_text, is_zhihu_skip_title, strip_zhihu_footer
 from enrich.images import harvest_rss_html
 
 
+def _empty_feed_error(url: str, *, wechat: bool) -> RuntimeError:
+    if wechat:
+        return RuntimeError(
+            f"feed empty: {url}。WeWe 已通但没有文章。"
+            "到 http://127.0.0.1:4000 点「获取历史文章」，"
+            "并检查读书号是否失效/小黑屋。"
+        )
+    return RuntimeError(f"feed empty: {url}")
+
+
 def slugify(name: str) -> str:
     """把订阅显示名收成 collector 后缀:ascii/中文都可,空白变下划线。"""
     s = name.strip().lower()
@@ -115,6 +125,7 @@ class RSSCollector(BaseCollector):
         feed = None
         last_exc: Exception | None = None
         # RSSHub 偶发返回 HTML 错误页;轻量重试一次
+        wechat = str(self.cfg.get("source") or "") == "wechat_mp"
         for attempt in range(2):
             feed = feedparser.parse(url)
             if feed.entries:
@@ -122,13 +133,14 @@ class RSSCollector(BaseCollector):
             if getattr(feed, "bozo", 0):
                 last_exc = RuntimeError(f"feed broken: {feed.bozo_exception}")
             else:
-                last_exc = RuntimeError(f"feed empty: {url}")
-            if attempt == 0:
+                last_exc = _empty_feed_error(url, wechat=wechat)
+            # 公众号刚请 WeWe 刷过，空 Atom 再等 1.5s 也变不出稿。
+            if attempt == 0 and not wechat:
                 time.sleep(1.5)
         assert feed is not None
         # bozo=1 但有 entries 是常态(不规范 XML);只有「坏且空」才算失败
         if not feed.entries:
-            raise last_exc or RuntimeError(f"feed empty: {url}")
+            raise last_exc or _empty_feed_error(url, wechat=wechat)
 
         source = Source(self.cfg["source"])
         kind = Kind(self.cfg.get("kind", "article"))

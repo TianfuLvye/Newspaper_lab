@@ -17,7 +17,7 @@ from pipeline.edition import produce_edition
 from pipeline.health import diagnose
 from render.health import render_health_md
 from render.subscriptions import collect_subscription_items
-from scheduler.run import build_scheduler
+from scheduler.run import build_scheduler, refresh_wechat_feeds
 
 ROOT = Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs" / "lab-06-scheduler.md"
@@ -104,6 +104,58 @@ def test_scheduler_job_config():
 
     enrich = jobs["enrich"].trigger
     check("enrich interval 6h", enrich.interval == timedelta(hours=6), str(enrich.interval))
+
+    check("has wewe_refresh_am", "wewe_refresh_am" in jobs)
+    check("has wewe_refresh_pm", "wewe_refresh_pm" in jobs)
+    wewe_am = jobs["wewe_refresh_am"].trigger
+    wewe_pm = jobs["wewe_refresh_pm"].trigger
+    check("wewe am is cron", isinstance(wewe_am, CronTrigger))
+    check("wewe pm is cron", isinstance(wewe_pm, CronTrigger))
+    check(
+        "wewe am 05:00",
+        "hour='5'" in str(wewe_am) and "minute='0'" in str(wewe_am),
+        str(wewe_am),
+    )
+    check(
+        "wewe pm 16:00",
+        "hour='16'" in str(wewe_pm) and "minute='0'" in str(wewe_pm),
+        str(wewe_pm),
+    )
+    check("wewe jitter 3600", wewe_am.jitter == 3600, str(wewe_am.jitter))
+    check("wewe coalesce", jobs["wewe_refresh_am"].coalesce is True)
+
+
+class _FakeWewe:
+    def __init__(self):
+        self.calls: list[str] = []
+
+    def refresh_articles(self, mp_id: str) -> None:
+        self.calls.append(mp_id)
+        if mp_id == "MP_WXS_22":
+            raise RuntimeError("boom")
+
+
+def test_refresh_wechat_skips_non_wechat():
+    fake = _FakeWewe()
+    slept: list[float] = []
+    feeds = [
+        {"name": "甲", "url": "http://wewe.test/feeds/MP_WXS_11.atom", "source": "wechat_mp"},
+        {"name": "知乎", "url": "{rsshub}/zhihu/people/answers/x", "source": "zhihu"},
+        {"name": "乙", "url": "http://wewe.test/feeds/MP_WXS_22.atom", "source": "wechat_mp"},
+        {"name": "丙", "url": "http://wewe.test/feeds/MP_WXS_33.atom", "source": "wechat_mp"},
+        {"name": "华尔街", "url": "https://feeds.a.dj.com/rss/x.xml", "source": "finance"},
+    ]
+    stats = refresh_wechat_feeds(
+        client=fake,
+        feeds=feeds,
+        delay_range=(1.0, 1.0),
+        sleep_fn=slept.append,
+        shuffle=False,
+    )
+    check("only wechat refreshed", fake.calls == ["MP_WXS_11", "MP_WXS_22", "MP_WXS_33"], str(fake.calls))
+    check("ok names", stats["ok"] == ["甲", "丙"], str(stats))
+    check("failed isolated", stats["failed"] == ["乙"], str(stats))
+    check("slept between accounts", slept == [1.0, 1.0], str(slept))
 
 
 def test_health_reports_manufactured_failure():
@@ -374,6 +426,7 @@ def test_docs():
 
 def main_tests() -> None:
     test_scheduler_job_config()
+    test_refresh_wechat_skips_non_wechat()
     test_health_reports_manufactured_failure()
     test_health_volume_drop()
     test_edition_used_in_not_repeated()

@@ -240,7 +240,8 @@ async function onRowClick(ev) {
     if (act === "collect") {
       toast(`正在采集 ${name}…`);
       const r = await api(`/api/feeds/${encodeName(name)}/collect`, { method: "POST" });
-      toast(`[${r.collector}] new=${r.new} dup=${r.dup}`);
+      if (r.warning) toast(r.warning, false);
+      else toast(`[${r.collector}] new=${r.new} dup=${r.dup}`);
       await loadFeeds();
       return;
     }

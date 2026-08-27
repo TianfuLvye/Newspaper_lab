@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from collectors.rss_generic import RSSCollector
 from console.detect import DetectError, FeedDraft, detect_input
-from console.wewe import WeweClient, WeweError
+from console.wewe import WECHAT_EMPTY_HINT, WeweClient, WeweError, mp_id_from_url
 from console.yaml_io import FeedPaths, FeedStore, FeedStoreError
 from core.base import run_collector
 from core.settings import load_env_file, load_settings
@@ -52,6 +52,15 @@ class FeedPatch(BaseModel):
 
 class WeweImportIn(BaseModel):
     ids: list[str] | None = None
+
+
+def _readable_run_error(err: object) -> str:
+    text = str(err or "")
+    if text.startswith("RuntimeError(") and text.endswith(")") and len(text) > 15:
+        inner = text[len("RuntimeError(") : -1]
+        if len(inner) >= 2 and inner[0] in "'\"" and inner[-1] == inner[0]:
+            return inner[1:-1]
+    return text
 
 
 def _http(err: Exception, status: int = 400) -> HTTPException:
@@ -220,13 +229,39 @@ def create_app(
             row["title_regex"] = view.title_regex
         if view.interval_minutes:
             row["interval_minutes"] = view.interval_minutes
+        refreshed = False
+        if view.source == "wechat_mp":
+            mp_id = mp_id_from_url(view.url_expanded) or mp_id_from_url(view.url)
+            if not mp_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="这个公众号 URL 里没有 MP_WXS_ id，无法请 WeWe 刷新",
+                )
+            try:
+                client.refresh_articles(mp_id)
+            except WeweError as e:
+                raise _http(e, status=502) from e
+            refreshed = True
         collector = RSSCollector(row)
         db = Store(database)
+        run: dict = {}
         try:
             new, dup = run_collector(collector, db)
+            run = db.latest_runs_by_collector().get(collector.name) or {}
         finally:
             db.close()
-        return {"collector": collector.name, "new": new, "dup": dup}
+        out = {
+            "collector": collector.name,
+            "new": new,
+            "dup": dup,
+            "refreshed": refreshed,
+        }
+        err = _readable_run_error(run.get("error"))
+        if refreshed and new == 0 and dup == 0:
+            out["warning"] = err or WECHAT_EMPTY_HINT
+        elif err:
+            out["warning"] = err
+        return out
 
     @app.get("/api/wewe/feeds")
     def wewe_feeds():

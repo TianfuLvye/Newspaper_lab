@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from console.app import create_app
 from console.detect import DetectError, detect_input
-from console.wewe import WeweClient
+from console.wewe import WeweClient, mp_id_from_url
 from console.yaml_io import FeedPaths, FeedStore
 from core.settings import apply_overlay, empty_overlay, load_feeds
 
@@ -136,8 +136,18 @@ def test_load_feeds_tmp_overlay():
         check("two feeds", len(feeds) == 2, str(len(feeds)))
 
 
+REFRESH_CALLS: list[dict] = []
+
+
 def _fake_wewe_handler(request: httpx.Request) -> httpx.Response:
     path = request.url.path
+    if path.endswith("/feed.refreshArticles"):
+        try:
+            body = json.loads(request.content.decode("utf-8") or "{}")
+        except json.JSONDecodeError:
+            body = {}
+        REFRESH_CALLS.append(body)
+        return httpx.Response(200, json={"result": {"data": {"json": None}}})
     if path.endswith("/platform.getMpInfo"):
         return httpx.Response(
             200,
@@ -220,6 +230,7 @@ def _client(td: Path) -> TestClient:
 
 
 def test_api_crud():
+    REFRESH_CALLS.clear()
     with tempfile.TemporaryDirectory() as tmp:
         td = Path(tmp)
         client = _client(td)
@@ -311,6 +322,114 @@ def test_api_crud():
         collected = client.post("/api/feeds/本地 RSS/collect")
         check("collect 200", collected.status_code == 200, collected.text)
         check("collect new", collected.json()["new"] >= 1, str(collected.json()))
+        check("rss not refreshed", collected.json().get("refreshed") is False)
+        check("rss did not hit wewe refresh", REFRESH_CALLS == [])
+
+
+def test_mp_id_from_url():
+    check(
+        "atom url",
+        mp_id_from_url("http://127.0.0.1:4000/feeds/MP_WXS_3868095266.atom")
+        == "MP_WXS_3868095266",
+    )
+    check(
+        "case fold",
+        mp_id_from_url("file:///tmp/mp_wxs_1.atom") == "MP_WXS_1",
+    )
+    check("no id", mp_id_from_url("https://feeds.a.dj.com/rss/RSSWorldNews.xml") is None)
+
+
+def test_refresh_articles_trpc():
+    seen: list[tuple[str, str, dict, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content.decode("utf-8") or "{}")
+        seen.append(
+            (
+                request.method,
+                request.url.path,
+                body,
+                request.headers.get("authorization", ""),
+            )
+        )
+        return httpx.Response(200, json={"result": {"data": {"json": None}}})
+
+    c = WeweClient("http://wewe.test", auth_code="secret", transport=httpx.MockTransport(handler))
+    c.refresh_articles("MP_WXS_1")
+    check("POST refresh", seen[0][0] == "POST")
+    check("path", seen[0][1].endswith("/feed.refreshArticles"))
+    check("mpId", seen[0][2]["json"]["mpId"] == "MP_WXS_1")
+    check("auth", seen[0][3] == "secret")
+    try:
+        c.refresh_articles("")
+        check("empty mp id rejected", False)
+    except Exception as e:
+        check("empty mp id rejected", "缺少" in str(e))
+
+
+def test_collect_wechat_refreshes():
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        REFRESH_CALLS.clear()
+        client = _client(td)
+        xml = """<?xml version="1.0"?><rss version="2.0"><channel>
+        <title>t</title><item><title>Hello</title><link>https://example.com/wx1</link></item>
+        </channel></rss>"""
+        feed_path = td / "MP_WXS_3868095266.atom"
+        feed_path.write_text(xml, encoding="utf-8")
+        store = FeedStore(
+            FeedPaths(
+                sources=td / "sources.yaml",
+                overlay=td / "overlay.yaml",
+                wechat=td / "wechat.yaml",
+                rsshub_url="http://rsshub.test",
+            )
+        )
+        store.add(
+            {
+                "name": "测试公众号",
+                "url": feed_path.as_uri(),
+                "source": "wechat_mp",
+                "kind": "article",
+            },
+            origin="wechat",
+        )
+        collected = client.post("/api/feeds/测试公众号/collect")
+        check("wechat collect 200", collected.status_code == 200, collected.text)
+        body = collected.json()
+        check("wechat collect new", body["new"] >= 1, str(body))
+        check("wechat refreshed flag", body.get("refreshed") is True)
+        mp_ids = [
+            (c.get("json") or {}).get("mpId")
+            for c in REFRESH_CALLS
+            if isinstance(c, dict)
+        ]
+        check("wechat refresh mpId", "MP_WXS_3868095266" in mp_ids, str(REFRESH_CALLS))
+
+        empty_path = td / "MP_WXS_999.atom"
+        empty_path.write_text(
+            '<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom">'
+            "<title>empty</title></feed>",
+            encoding="utf-8",
+        )
+        store.add(
+            {
+                "name": "空公众号",
+                "url": empty_path.as_uri(),
+                "source": "wechat_mp",
+                "kind": "article",
+            },
+            origin="wechat",
+        )
+        empty = client.post("/api/feeds/空公众号/collect")
+        check("empty collect 200", empty.status_code == 200, empty.text)
+        empty_body = empty.json()
+        check("empty new 0", empty_body["new"] == 0 and empty_body["dup"] == 0)
+        check(
+            "empty hint",
+            "获取历史文章" in (empty_body.get("warning") or ""),
+            str(empty_body),
+        )
 
 
 def main():
@@ -320,6 +439,9 @@ def main():
     test_overlay_merge()
     test_load_feeds_tmp_overlay()
     test_api_crud()
+    test_mp_id_from_url()
+    test_refresh_articles_trpc()
+    test_collect_wechat_refreshes()
     print(f"All console checks passed ({PASS} assertions).")
 
 
