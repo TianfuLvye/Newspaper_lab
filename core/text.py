@@ -108,9 +108,9 @@ def readable_body(it) -> str:
     """报纸/打分用的正文。视频没有转写就留空,知乎裁掉文末推荐。"""
     kind = getattr(it, "kind", None)
     kind_v = kind.value if hasattr(kind, "value") else kind
-    if kind_v == "video":
-        return ""
     raw = (getattr(it, "content", None) or getattr(it, "summary", None) or "")
+    if kind_v == "video" and not (raw or "").strip():
+        return ""
     text = normalize_paragraphs(raw)
     source = getattr(it, "source", None)
     src = source.value if hasattr(source, "value") else source

@@ -631,7 +631,7 @@ def build_parser() -> argparse.ArgumentParser:
         description=(
             "对一条 BV 下载音频、火山识别、Flash 改成见报稿。\n"
             "文件写到 data/transcripts/。若该 BV 已由 enrich 白名单入库，再写入 items.content。\n"
-            "不改 enrich：不会一次转写整个合集，也不会印进口播栏目。"
+            "合集滴灌见报走 `render --edition am`，不会一次转写整个合集。"
         ),
         epilog=(
             "需要本机 ffmpeg，以及 .env 里的 STT_API_KEY 与 FISHNET_LLM_API_KEY。\n"

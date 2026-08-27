@@ -140,6 +140,7 @@ def render_item_md(
     heading_level: int = 2,
     already: str | None = None,
     images=None,
+    max_images: int | None = None,
 ) -> str:
     """单篇离线可读稿。链接只作为附注明文,不充当正文。"""
     hashes = "#" * heading_level
@@ -162,23 +163,25 @@ def render_item_md(
             lines.append(f"原文地址(需上网,纸上看不到点): `{it.url}`")
             lines.append("")
         return "\n".join(lines)
-    if kind == "video":
+    img_block = ""
+    if images is not None:
+        if max_images is not None:
+            img_block = images.markdown_for(it, max_keep=max_images)
+        else:
+            img_block = images.markdown_for(it)
+    if kind == "video" and not body:
         lines.append("_视频暂不转写，只保留标题和链接。_")
         lines.append("")
     elif body:
-        if images is not None:
-            block = images.markdown_for(it)
-            if block:
-                lines.append(block.rstrip())
-                lines.append("")
+        if img_block:
+            lines.append(img_block.rstrip())
+            lines.append("")
         lines.append(body)
         lines.append("")
     else:
-        if images is not None:
-            block = images.markdown_for(it)
-            if block:
-                lines.append(block.rstrip())
-                lines.append("")
+        if img_block:
+            lines.append(img_block.rstrip())
+            lines.append("")
         lines.append("_库里没有正文。热榜/视频常如此;文章则多半是抽取失败。_")
         lines.append("")
     if it.url and it.url.startswith("http"):

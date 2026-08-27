@@ -84,5 +84,32 @@ def download_bilibili_audio(url: str, dest_dir: Path) -> tuple[Path, dict[str, A
         "duration": info.get("duration"),
         "id": info.get("id") or "",
         "webpage_url": info.get("webpage_url") or url,
+        "images": thumbnail_candidates(info),
     }
     return audio_path, meta
+
+
+def thumbnail_candidates(info: dict[str, Any], *, limit: int = 2) -> list[dict[str, str]]:
+    """封面 + 可选另一张静帧 URL。同一图不同尺寸只留一张。"""
+    out: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(url: object, role: str) -> None:
+        raw = str(url or "").strip()
+        if not raw or not raw.startswith("http"):
+            return
+        key = raw.split("@", 1)[0]
+        if key in seen:
+            return
+        seen.add(key)
+        out.append({"url": raw, "alt": str(info.get("title") or ""), "role": role})
+
+    add(info.get("thumbnail"), "cover")
+    for row in info.get("thumbnails") or []:
+        if isinstance(row, dict):
+            add(row.get("url"), "cover" if not out else "body")
+        if len(out) >= limit:
+            return out[:limit]
+    add(info.get("screenshot"), "body")
+    add(info.get("first_frame"), "body")
+    return out[:limit]

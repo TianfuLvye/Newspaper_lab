@@ -53,6 +53,7 @@ uv run python -m tests.test_lab3       # Lab 3 RSS / 订阅版面
 uv run python -m tests.test_lab4       # Lab 4 MediaCrawler 隔离 / fixture 入库
 uv run python -m tests.test_lab5       # Lab 5 正文抽取 / 缓存 / 降级
 uv run python -m tests.test_transcript # 口播并节打包 / BV 解析 / 下载头
+uv run python -m tests.test_drip       # 滴灌游标 / 口播栏见报
 uv run python -m tests.test_lab6       # Lab 6 调度配置 / 出报隔离 / 体检
 uv run python -m tests.test_lab7       # Lab 7 黄金集 / 两阶段 / 折叠 / 反馈 / A/B
 uv run python -m tests.test_lab8       # Lab 8 A3 矩阵排版 / 分页 / 配图算法 / PDF
@@ -105,7 +106,7 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | render/newspaper.py | 8 | digest.md → HTML + PDF |
 | docs/adr/006-embed-backend.md | 7 | 不上 chromadb 的理由 |
 | docs/adr/007-newspaper-grid.md | 8 | 为什么不套用 8.1 流式方案 |
-| docs/adr/008-bilibili-transcript-whitelist.md | — | B 站列 BV；`transcript` 手动转写 |
+| docs/adr/008-bilibili-transcript-whitelist.md | — | B 站列 BV；合集滴灌进 04 口播栏 |
 | docs/lab-08-render.md | 8 | 排版设计笔记 |
 
 ## 仍待实现
@@ -114,4 +115,4 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 - `notify/*` —— 邮件 / Telegram 推送(Lab 9;`digest.pdf` / `digest.html` 已可当附件)
 - 知乎收藏夹 id 填进 `config/golden.yaml` 后 `golden --refresh`,用你的真收藏替换冷启动 seed
 - 配 `FISHNET_LLM_API_KEY` 后评委从启发式切到 LLM(每期仍 ≤150 次,用 Flash 文本模型);头版综述也会走 Flash;配图挑选走 Visual
-- 口播滴灌（每天自动转一条）和口播栏目进 PDF（`transcript` 命令已可手动转写）
+- 读书滴灌（章节列表复用 `core/drip.py`）

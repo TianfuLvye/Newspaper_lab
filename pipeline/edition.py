@@ -18,6 +18,7 @@ from core.store import Store
 from pipeline.health import HealthReport, diagnose
 from render.health import render_health_md
 from render.hotlist import collect_newly_entered_items, render_hotlist_md
+from render.oral import render_oral_md
 from render.ranked import render_critical, render_deepread, render_headline
 from render.subscriptions import (
     collect_subscription_items,
@@ -160,6 +161,23 @@ def _run_subscriptions(
     )
 
 
+def _run_oral(prepared, *, images=None) -> SectionResult:
+    """口播栏优先写出。有正文的滴灌稿必须进这一栏，不能改占位。"""
+    from core.text import newspaper_body
+
+    items = [slot.item for slot in prepared.slots if newspaper_body(slot.item)]
+    notes = prepared.notes if not items else None
+    md = render_oral_md(items, images=images, notes=notes)
+    return SectionResult(
+        name="oral",
+        filename="04_oral.md",
+        markdown=md,
+        hashes=[it.content_hash for it in items],
+        has_content=bool(items),
+        items=items,
+    )
+
+
 def _run_health(
     store: Store, expected: list[str] | None
 ) -> tuple[SectionResult, HealthReport]:
@@ -222,10 +240,15 @@ def produce_edition(
     section_timeout: float = 180,
     deadline_minutes: float = 20,
     mark: bool = True,
+    transcribe_oral: bool = True,
+    drip_dir: Path | None = None,
+    catalog_dir: Path | None = None,
+    oral_targets: list | None = None,
 ) -> EditionResult:
     """出一期报纸。只要有一个内容版面成功(或体检页写出)就落盘。
 
     `deadline_minutes` 是硬约束:超时的版面改占位,体检页尽量保留。
+    口播栏在时限之前写出:滴灌稿有正文就必须进 digest,游标见报后才前进。
     """
     eid = edition_id_for(kind, now=now)
     settings = load_settings()
@@ -246,6 +269,27 @@ def produce_edition(
     ranked_skip: set[str] = set()
     rank_result = None
     already_ranked: dict[str, str] = {}
+
+    from enrich.oral import PreparedOral, commit_drip, prepare_oral
+
+    prepared_oral = PreparedOral()
+    try:
+        prepared_oral = prepare_oral(
+            store,
+            kind,
+            transcribe=transcribe_oral,
+            drip_dir=drip_dir,
+            catalog_dir=catalog_dir,
+            targets=oral_targets,
+        )
+        oral_sec = _run_oral(prepared_oral, images=materializer)
+    except Exception as e:  # noqa: BLE001
+        err = repr(e)
+        log.warning("[%s] oral section failed: %s", eid, err)
+        failures.append(("oral", err))
+        oral_sec = _placeholder("oral", "口播", err)
+        oral_sec.filename = "04_oral.md"
+    sections.append(oral_sec)
 
     elapsed = time.monotonic() - t0
     if elapsed < deadline:
@@ -372,6 +416,8 @@ def produce_edition(
                 used.append(h)
     if mark and used:
         store.mark_used(used, eid)
+    if mark and oral_sec.has_content:
+        commit_drip(prepared_oral, list(oral_sec.items or []))
 
     has_content = any(s.has_content and s.name != "health" for s in sections)
     if has_content and not failures:

@@ -56,6 +56,7 @@ def run_transcript(
     title = bvid
     uploader = ""
     webpage = url
+    images: list = []
 
     if from_text is not None:
         transcript = Path(from_text).read_text(encoding="utf-8")
@@ -66,6 +67,7 @@ def run_transcript(
         title = str(meta.get("title") or title)
         uploader = str(meta.get("uploader") or "")
         webpage = str(meta.get("webpage_url") or url)
+        images = list(meta.get("images") or [])
         transcript = transcribe_audio(audio_path)
         (dest / f"{bvid}.meta.json").write_text(
             json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
@@ -97,6 +99,16 @@ def run_transcript(
     content_written = False
     if store is not None and item is not None:
         store.update_content(item.content_hash, newspaper)
+        if images:
+            have = {str(rec.get("url") or "") for rec in (item.images or [])}
+            merged = list(item.images or [])
+            for rec in images:
+                url_img = rec.get("url") if isinstance(rec, dict) else None
+                if url_img and url_img not in have:
+                    merged.append(dict(rec))
+                    have.add(url_img)
+            if merged:
+                store.update_images(item.content_hash, merged)
         content_written = True
 
     return TranscriptResult(

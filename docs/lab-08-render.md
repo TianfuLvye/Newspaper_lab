@@ -17,7 +17,7 @@
 | 验收 / 原则 | 落点 |
 |---|---|
 | 中文无乱码、标点正常 | 系统宋体/黑体 TTF 注册进 reportlab,自写 CJK 折行 |
-| ≥5 个版面 | 解析 `01_headline` / `02_hotlist` / `03_deepread` / `06_subscribe` / `07_critical` / `99_health` |
+| ≥5 个版面 | 解析 `01_headline` / `02_hotlist` / `03_deepread` / `04_oral` / `06_subscribe` / `07_critical` / `99_health` |
 | 早晚报有实质差异 | 早报字更密、热榜靠前;晚报字略大、深度靠前;报头文案不同 |
 | 无孤行/断表 | 续页在句号/段末切开;剩余 <48 字并入本格 |
 | digest.md → PDF < 30s | 装箱是整数格子,量字+reportlab 通常几秒 |

@@ -1,7 +1,7 @@
 # B 站口播白名单。发现走 RSSHub / 合集 API，正文转写另一步。见 docs/adr/008-bilibili-transcript-whitelist.md
 #
 # ups:        空间主页，轮询最近投稿
-# collections: type=season 合集。先存全量 BV；drip 打开后才每天转写一条（尚未实现）
+# collections: type=season 合集。先存全量 BV；drip 打开后每天早报印一条
 
 ups:
   - name: 大问题Dialectic
@@ -10,4 +10,4 @@ ups:
 collections:
   - name: 硬核烹饪指南
     url: https://space.bilibili.com/12383027/lists/546782?type=season
-    drip: false
+    drip: true

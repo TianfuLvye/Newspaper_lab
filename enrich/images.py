@@ -331,11 +331,12 @@ class ImageMaterializer:
             if close:
                 close()
 
-    def markdown_for(self, item: Item) -> str:
-        return image_markdown(self.ensure(item))
+    def markdown_for(self, item: Item, *, max_keep: int | None = None) -> str:
+        return image_markdown(self.ensure(item, max_keep=max_keep))
 
-    def ensure(self, item: Item) -> list[dict]:
-        key = item.content_hash or item.url
+    def ensure(self, item: Item, *, max_keep: int | None = None) -> list[dict]:
+        keep = MAX_KEEP if max_keep is None else max_keep
+        key = f"{item.content_hash or item.url}:{keep}"
         if key in self._cache:
             return self._cache[key]
         cands = list(item.images or [])
@@ -348,6 +349,7 @@ class ImageMaterializer:
             body,
             cands,
             llm_fn=self.llm_fn,
+            max_keep=keep,
         )
         local: list[dict] = []
         for cand in picked:

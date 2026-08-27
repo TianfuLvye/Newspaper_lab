@@ -318,6 +318,7 @@ tmp = Path(tempfile.mkdtemp())
     encoding="utf-8",
 )
 (tmp / "03_deepread.md").write_text("# 深度阅读\n\n_本栏目今日无入选。_\n", encoding="utf-8")
+(tmp / "04_oral.md").write_text("# 口播\n\n_今日口播未成。_\n", encoding="utf-8")
 (tmp / "07_critical.md").write_text("# 今日一问\n\n_本栏目今日无入选。_\n", encoding="utf-8")
 (tmp / "06_subscribe.md").write_text("# 订阅更新\n\n_本栏目今日无数据。_\n", encoding="utf-8")
 (tmp / "99_health.md").write_text("# 系统体检\n\n**告警 0 项**\n", encoding="utf-8")

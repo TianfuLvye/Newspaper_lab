@@ -104,7 +104,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 
 ### 4.3 `enrich/` —— 正文
 
-`extract.py`：站点适配器（华尔街见闻走 API）+ trafilatura 兜底。同一 URL 24h HTML 缓存，同域名间隔 ≥1.5s。质量不够则 `content` 保持空，出报用标题 + summary。热榜问题页按 ADR-004 **不去爬回答**。`bilibili.py` 只列白名单 BV。口播转写是手动 `main.py transcript`，不进默认 enrich。
+`extract.py`：站点适配器（华尔街见闻走 API）+ trafilatura 兜底。同一 URL 24h HTML 缓存，同域名间隔 ≥1.5s。质量不够则 `content` 保持空，出报用标题 + summary。热榜问题页按 ADR-004 **不去爬回答**。`bilibili.py` 只列白名单 BV。口播转写是手动 `main.py transcript`，不进默认 enrich；早报 `prepare_oral` 滴灌当天一条进 `04_oral.md`。
 
 ### 4.4 `pipeline/` —— 加工与出报
 
@@ -127,6 +127,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 | 文件 | 写出 |
 |---|---|
 | `ranked.py` | `01_headline.md` / `03_deepread.md` / `07_critical.md` |
+| `oral.py` | `04_oral.md` |
 | `hotlist.py` | `02_hotlist.md` |
 | `subscriptions.py` | `06_subscribe.md` + `items/*.md` |
 | `health.py` | `99_health.md` |
@@ -136,7 +137,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 
 现在没有 Jinja2 模板。Lab 8 把 `01_`…`99_` 装进 A3 矩阵,写出 `digest.pdf` / `digest.html`。版面号仍是文件名。
 
-注意：`digest.md` 的拼接顺序是 **头版 → 深度 → 今日一问 → 热榜 → 订阅 → 体检**。PDF 另有报纸版序:早报热榜靠前,晚报深度靠前。
+注意：`digest.md` 的拼接顺序是 **口播 → 头版 → 深度 → 今日一问 → 热榜 → 订阅 → 体检**。口播栏先写，避免总时限把滴灌稿跳掉。PDF 另有报纸版序:早报热榜靠前,晚报深度靠前。
 
 ### 4.6 `scheduler/` / `notify/`
 
@@ -191,6 +192,7 @@ digest.md          ← Lab 8 主入口：各版 Markdown 拼在一起
 01_headline.md
 02_hotlist.md
 03_deepread.md
+04_oral.md
 06_subscribe.md
 07_critical.md
 99_health.md
@@ -198,7 +200,7 @@ ranking.json       ← F01… → content_hash，给 feedback / 以后 HTML 按�
 items/*.md         ← 单篇离线稿
 ```
 
-手册里的 `04_finance.md` / `05_tech.md` **还没做**。关键词组虽标了 `sections: [finance|tech|policy]`，`edition.py` 没有按这个切版。
+手册里的 `05_tech.md` **还没做**。`04_oral.md` 是口播栏（合集滴灌 + 订阅 UP）。关键词组虽标了 `sections: [finance|tech|policy]`，`edition.py` 没有按这个切财经/科技版。
 
 两层内容：
 
@@ -252,7 +254,7 @@ uv run main.py render --edition am
 | 2 关键词 | \(S_{kw}\)，不单独成版 | `pipeline/keyword.py` `config/keywords.yaml` |
 | 3 RSSHub | 订阅版 | `collectors/rss_generic.py` `render/subscriptions.py` |
 | 4 小红书 | 子进程隔离（直播抓取仍待本机扫码） | `collectors/targeted_xhs.py` |
-| 5 正文 | `items.content` | `enrich/extract.py` `enrich/transcript.py` |
+| 5 正文 | `items.content` | `enrich/extract.py` `enrich/transcript.py` `enrich/oral.py` |
 | 6 调度 | 早晚自动出报 + 体检页 | `scheduler/run.py` `pipeline/edition.py` |
 | 7 个性化 | 头版/深度/今日一问 + Fnn | `pipeline/rank.py` `render/ranked.py` |
 | 8 渲染 | A3 矩阵报纸 PDF/HTML | `render/layout/*` `render/newspaper.py` |
@@ -280,7 +282,7 @@ uv run main.py render --edition am
 
 空版：某栏目失败时已是「本栏目今日无数据」，PDF 原样印占位块。
 
-`04_finance` / `05_tech` 仍未切版；财经/科技稿混在头版和深度里。
+`05_tech` 仍未切版；财经/科技稿混在头版和深度里。口播走 `04_oral.md`。
 
 ---
 

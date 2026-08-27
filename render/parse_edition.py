@@ -11,6 +11,7 @@ _SECTION_FILES: list[tuple[str, str, str, str]] = [
     ("01_headline.md", "headline", "头版", "story"),
     ("02_hotlist.md", "hotlist", "热榜", "index"),
     ("03_deepread.md", "deepread", "深度", "story"),
+    ("04_oral.md", "oral", "口播", "story"),
     ("07_critical.md", "critical", "今日一问", "story"),
     ("06_subscribe.md", "subscribe", "订阅", "story"),
     ("99_health.md", "health", "体检", "index"),
@@ -27,6 +28,7 @@ _MAX_CHARS = {
     "headline": 6000,
     "deepread": 5000,
     "critical": 3200,
+    "oral": 16000,
     "subscribe": 20000,
     "hotlist": 8000,
     "health": 6000,
@@ -35,6 +37,7 @@ _MAX_PAGES = {
     "headline": 3,
     "deepread": 3,
     "critical": 2,
+    "oral": 3,
     "subscribe": 2,
     "hotlist": 2,
     "health": 2,
@@ -106,7 +109,7 @@ def _meta_from_text(text: str, *, fallback: str) -> EditionMeta:
 def _parse_section(
     text: str, section: str, kicker: str, role: str, *, base: Path | None = None
 ) -> list[Article]:
-    if "本栏目今日无数据" in text[:400] or "本栏目今日无入选" in text[:400]:
+    if "本栏目今日无数据" in text[:400] or "本栏目今日无入选" in text[:400] or "今日口播未成" in text[:400]:
         return [
             Article(
                 id=f"{section}-empty",
