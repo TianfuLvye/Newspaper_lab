@@ -16,6 +16,7 @@ dependencies = [
     "trafilatura>=2.2.0",
     "reportlab>=4.4.3",
     "pillow>=11.0.0",
+    "yt-dlp>=2025.3.31",
 ]
 
 [dependency-groups]

@@ -6,7 +6,8 @@
   uv run main.py collect --only-rss
   uv run main.py collect --only-targeted # Lab 4,不进默认 collect
   uv run main.py collect                 # 热榜 + RSS 订阅
-  uv run main.py enrich --limit 20       # Lab 5 正文抽取
+  uv run main.py enrich --limit 20       # Lab 5 正文抽取 + B 站白名单发现
+  uv run main.py transcript BV19d4y1D7n3 # 口播：下载音频 → 火山 STT → 改稿
   uv run main.py render --edition am     # Lab 6/7/8 出一期早报(含 PDF)
   uv run main.py pdf                     # 对已有 digest 只排版,不重跑打分
   uv run main.py golden                  # Lab 7 拟合收藏夹画像
@@ -203,11 +204,18 @@ def cmd_render(args: argparse.Namespace) -> int:
 
 
 def cmd_enrich(args: argparse.Namespace) -> int:
-    """Lab 5:把缺正文的条目抽一遍,回填 items.content。"""
+    """Lab 5 抽网页正文；并列出 B 站白名单视频（不转写）。"""
+    from enrich.bilibili import enrich_bilibili
     from enrich.extract import enrich_store
 
     store = Store(args.db)
     try:
+        bili = enrich_bilibili(store)
+        print(
+            f"bili ups={bili['ups']} collections={bili['collections']} "
+            f"videos_new={bili['videos_new']} videos_dup={bili['videos_dup']} "
+            f"catalog={bili['catalog']} error={bili['error']}"
+        )
         stats = enrich_store(store, limit=args.limit)
         print(
             f"enrich ok={stats['ok']} degraded={stats['degraded']} "
@@ -215,6 +223,33 @@ def cmd_enrich(args: argparse.Namespace) -> int:
             f"cached={stats['cached']} restored={stats.get('restored', 0)}"
         )
         return 0
+    finally:
+        store.close()
+
+
+def cmd_transcript(args: argparse.Namespace) -> int:
+    """手动转写一条 B 站口播：下载音频 → 火山 STT → Flash 改稿。不改 enrich。"""
+    from core.settings import load_env_file
+    from enrich.transcript import run_transcript
+
+    load_env_file()
+    store = Store(args.db)
+    try:
+        result = run_transcript(
+            args.video,
+            store=store,
+            from_text=Path(args.from_text) if args.from_text else None,
+        )
+        print(
+            f"transcript {result.bvid} mode={result.mode} "
+            f"wrote={result.newspaper_path} content={int(result.content_written)}"
+        )
+        if result.layout_path:
+            print(f"layout {result.layout_path}")
+        return 0
+    except Exception as exc:  # noqa: BLE001 — 命令行要把下载/STT/改稿错误打出来
+        print(f"transcript failed: {exc}", file=sys.stderr)
+        return 1
     finally:
         store.close()
 
@@ -577,9 +612,8 @@ def build_parser() -> argparse.ArgumentParser:
         "enrich",
         help="抽取正文并回填 items.content(Lab 5)",
         description=(
-            "对库里尚无 content 的条目做正文抽取。\n"
-            "同一 URL 24h 内走 HTML 缓存;同域名请求间隔 ≥1.5s;遵守 robots.txt。\n"
-            "质量不够则保持 content 为空,降级为标题 + summary。"
+            "列出 B 站白名单视频(不转写),再对库里尚无 content 的网页条目抽正文。\n"
+            "播放页不走 HTML 抽取。同一 URL 24h 内走 HTML 缓存;遵守 robots.txt。"
         ),
     )
     p_enrich.add_argument(
@@ -589,6 +623,31 @@ def build_parser() -> argparse.ArgumentParser:
         help="最多处理多少条缺正文的条目(默认 20)",
     )
     p_enrich.set_defaults(func=cmd_enrich)
+
+    p_tx = sub.add_parser(
+        "transcript",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="手动转写一条 B 站口播(下载+火山STT+改稿)",
+        description=(
+            "对一条 BV 下载音频、火山识别、Flash 改成见报稿。\n"
+            "文件写到 data/transcripts/。若该 BV 已由 enrich 白名单入库，再写入 items.content。\n"
+            "不改 enrich：不会一次转写整个合集，也不会印进口播栏目。"
+        ),
+        epilog=(
+            "需要本机 ffmpeg，以及 .env 里的 STT_API_KEY 与 FISHNET_LLM_API_KEY。\n"
+            "示例:\n"
+            "  uv run main.py transcript BV19d4y1D7n3\n"
+            "  uv run main.py transcript https://www.bilibili.com/video/BV19d4y1D7n3\n"
+            "  uv run main.py transcript BV19d4y1D7n3 --from-text path/to.txt"
+        ),
+    )
+    p_tx.add_argument("video", help="BV 号或 B 站播放页 URL")
+    p_tx.add_argument(
+        "--from-text",
+        type=Path,
+        help="跳过下载和识别，直接用这份转写做改稿",
+    )
+    p_tx.set_defaults(func=cmd_transcript)
 
     p_health = sub.add_parser(
         "health",

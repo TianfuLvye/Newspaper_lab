@@ -6,7 +6,7 @@
 ## 本 Lab 完成了什么
 
 1. **自部署 RSSHub**:`docker-compose.yml` + Redis，官方 `diygod/rsshub` 镜像。
-2. **订阅清单 ≥10 源**:`config/sources.yaml` 的 `feeds:`（不含「B站每周必看」,那会占满版面）。
+2. **订阅清单 ≥10 源**:`config/sources.yaml` 的 `feeds:` 加上 `wechat.yaml` 公众号（不含个人 B 站 UP、「B站每周必看」）。
 3. **通用 `RSSCollector`**:`collectors/rss_generic.py`。
 4. **公众号 3.4**:[ADR-002](./adr/002-wechat-mp-strategy.md) + `docker-compose.wewe-rss.yml` + 下文部署步骤。
 5. **版面**:`render/sections/subscriptions.md`；测试 `tests/test_lab3.py`。
@@ -17,7 +17,7 @@
 |---|---|
 | 自建 RSSHub 跑通 | `docker compose up -d` |
 | ≥10 订阅源 | `sources.yaml` feeds |
-| B 站 UP + 知乎 + 新番 | 泛式/好柿花生；Thoughts Memo/差评君；知乎日报早报；Bangumi 今日放送 |
+| 知乎 + 新番 + 财经 | Thoughts Memo/差评君；知乎日报早报；Bangumi 今日放送；华尔街日报/见闻。不定个人 B 站 UP |
 | 公众号方案 | ADR-002 + WeWe RSS compose 文件 |
 | subscriptions.md | `render/subscriptions.py` |
 

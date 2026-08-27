@@ -40,7 +40,7 @@ def all_collectors(
 
 
 def get_collector(name: str) -> BaseCollector | None:
-    """按 name 查找(如 hotlist_weibo / rss_泛式_投稿 / dummy)。"""
+    """按 name 查找(如 hotlist_weibo / rss_知乎日报_早报 / dummy)。"""
     if name == "dummy":
         return DummyCollector()
     for c in all_collectors(include_dummy=False, include_targeted=True):

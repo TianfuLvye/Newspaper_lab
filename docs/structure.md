@@ -104,7 +104,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 
 ### 4.3 `enrich/` —— 正文
 
-`extract.py`：站点适配器（华尔街见闻走 API）+ trafilatura 兜底。同一 URL 24h HTML 缓存，同域名间隔 ≥1.5s。质量不够则 `content` 保持空，出报用标题 + summary。热榜问题页按 ADR-004 **不去爬回答**。
+`extract.py`：站点适配器（华尔街见闻走 API）+ trafilatura 兜底。同一 URL 24h HTML 缓存，同域名间隔 ≥1.5s。质量不够则 `content` 保持空，出报用标题 + summary。热榜问题页按 ADR-004 **不去爬回答**。`bilibili.py` 只列白名单 BV。口播转写是手动 `main.py transcript`，不进默认 enrich。
 
 ### 4.4 `pipeline/` —— 加工与出报
 
@@ -159,7 +159,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 
 `[ranking]` 当前：粗排 Top 150 进评委；头版 3、深度 8、今日一问 3；探索比 15%。
 
-订阅源（`feeds`）现状：知乎只订**回答**（不定动态）；B 站投稿是 `video`（不进打分、默认也不进订阅正文）；华尔街日报官方 RSS + 华尔街见闻；公众号「章北海的自然选择」。
+订阅源（`feeds`）现状：知乎只订**回答**（不定动态）；不定个人 B 站 UP（视频没有转写，进不了打分和订阅正文）；新番走 Bangumi 日历；华尔街日报官方 RSS + 华尔街见闻；公众号在 `wechat.yaml`。
 
 ---
 
@@ -228,7 +228,7 @@ uv run main.py render --edition am
 |---|---|---|
 | `collect` | 1/3 | 热榜 + RSS 入库 |
 | `collect --only-hotlist` / `--only-rss` / `--only-targeted` | | 只跑一类网 |
-| `enrich --limit 20` | 5 | 抽正文 |
+| `enrich --limit 20` | 5 | 抽正文；并列出 B 站白名单 |
 | `render --edition am\|pm` | 6/7 | 出一期报纸 |
 | `health` | 6 | 体检（与 99 页同一份） |
 | `serve` | 6 | 常驻调度 |
@@ -252,7 +252,7 @@ uv run main.py render --edition am
 | 2 关键词 | \(S_{kw}\)，不单独成版 | `pipeline/keyword.py` `config/keywords.yaml` |
 | 3 RSSHub | 订阅版 | `collectors/rss_generic.py` `render/subscriptions.py` |
 | 4 小红书 | 子进程隔离（直播抓取仍待本机扫码） | `collectors/targeted_xhs.py` |
-| 5 正文 | `items.content` | `enrich/extract.py` |
+| 5 正文 | `items.content` | `enrich/extract.py` `enrich/transcript.py` |
 | 6 调度 | 早晚自动出报 + 体检页 | `scheduler/run.py` `pipeline/edition.py` |
 | 7 个性化 | 头版/深度/今日一问 + Fnn | `pipeline/rank.py` `render/ranked.py` |
 | 8 渲染 | A3 矩阵报纸 PDF/HTML | `render/layout/*` `render/newspaper.py` |

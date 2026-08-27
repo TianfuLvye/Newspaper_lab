@@ -23,7 +23,7 @@
 | [adr/004-extract-and-robots.md](./adr/004-extract-and-robots.md) | ADR-004 | 正文优先 RSS/API;robots 只放行订阅单篇;热榜不爬回答 |
 | [adr/005-scheduler-runtime.md](./adr/005-scheduler-runtime.md) | ADR-005 | APScheduler 在家跑;残缺出报;Actions 只做心跳 |
 | [adr/006-embed-backend.md](./adr/006-embed-backend.md) | ADR-006 | TF-IDF+SQLite 存向量;不上 chromadb |
-| [adr/007-newspaper-grid.md](./adr/007-newspaper-grid.md) | ADR-007 | A3 矩阵排版,不套用 8.1 流式方案 |
+| [adr/008-bilibili-transcript-whitelist.md](./adr/008-bilibili-transcript-whitelist.md) | ADR-008 | B 站 UP/合集白名单先列 BV；合集以后每天转写一条 |
 | [notes/anti-crawling.md](./notes/anti-crawling.md) | Lab 4.2 | 登录态、签名、Playwright 代价、限速 |
 
 ## 后续 Lab 怎么写（模板）

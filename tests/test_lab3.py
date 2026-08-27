@@ -64,21 +64,21 @@ def test_feeds_config_coverage():
     feeds = load_feeds()
     check("feeds >= 10", len(feeds) >= 10, f"got {len(feeds)}")
     names = {f["name"] for f in feeds}
-    # 用户指定账号必须出现
-    must_substrings = ["Thoughts Memo", "差评君", "知乎日报", "泛式", "好柿花生", "华尔街日报"]
+    # 用户指定账号必须出现(不定个人 B 站 UP)
+    must_substrings = ["Thoughts Memo", "差评君", "知乎日报", "华尔街日报"]
     for s in must_substrings:
         check(f"feed covers {s}", any(s in n for n in names))
-    # 验收:至少 2 个 B 站 UP + 至少 1 个知乎 + 新番相关
-    bili_video = [
-        f for f in feeds if f.get("source") == "bilibili" and "user/video" in f["url"]
+    bili_up = [
+        f
+        for f in feeds
+        if "bilibili/user/video" in f["url"] or "bilibili/user/dynamic" in f["url"]
     ]
-    zhihu = [f for f in feeds if f.get("source") == "zhihu"]
     bangumi_ish = [
         f
         for f in feeds
         if "bangumi" in f["url"] or "weekly" in f["url"] or "新番" in f["name"] or "放送" in f["name"]
     ]
-    check("≥2 bilibili UP video feeds", len(bili_video) >= 2, str(len(bili_video)))
+    check("no personal bilibili UP feeds", len(bili_up) == 0, str([f["name"] for f in bili_up]))
     daily = next(f for f in feeds if "知乎日报" in f["name"])
     check("zaobao title_regex set", bool(daily.get("title_regex")))
     check(
@@ -243,7 +243,6 @@ def test_live_rsshub_smoke():
         return
     # 挑几个相对稳的路由做连通性(知乎可能要 Cookie,失败不直接判整 Lab 挂)
     probes = [
-        ("bilibili/泛式", "{rsshub}/bilibili/user/video/63231"),
         ("bangumi/today", "{rsshub}/bangumi.tv/calendar/today"),
         ("wsj/official", "https://feeds.a.dj.com/rss/RSSWorldNews.xml"),
         ("wallstreetcn", "{rsshub}/wallstreetcn/news/global"),
@@ -374,7 +373,7 @@ def test_text_cleanup_and_filters():
                 Source.BILIBILI, Kind.VIDEO, "塔菲吐槽",
                 "https://www.bilibili.com/video/BV1",
                 content="一堆相关推荐标题",
-                collector="rss_好柿花生_投稿",
+                collector="rss_b站投稿",
                 published_at=now,
                 fetched_at=now,
             )
@@ -392,7 +391,7 @@ def test_text_cleanup_and_filters():
                 window_hours=48,
                 collector_names={
                     "rss_知乎日报_早报",
-                    "rss_好柿花生_投稿",
+                    "rss_b站投稿",
                     "rss_thoughts_memo_回答",
                 },
             )

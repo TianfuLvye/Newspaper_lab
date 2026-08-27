@@ -286,6 +286,17 @@ class Store:
         ).fetchone()
         return self._row_to_item(row) if row else None
 
+    def find_bilibili_video(self, bvid: str) -> Item | None:
+        """白名单 enrich 入库的播放页。bvid 大小写按 URL 原文匹配。"""
+        token = (bvid or "").strip()
+        if not token:
+            return None
+        row = self._conn.execute(
+            "SELECT * FROM items WHERE kind=? AND url LIKE ? LIMIT 1",
+            (Kind.VIDEO.value, f"%{token}%"),
+        ).fetchone()
+        return self._row_to_item(row) if row else None
+
     def newly_entered(self, board: str, window_hours: int = 6) -> list[str]:
         """窗口内首次出现的条目 hash。
 

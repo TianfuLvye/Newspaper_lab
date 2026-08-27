@@ -82,11 +82,18 @@ RSS 采集侧:展示用 `summary` 仍截 500 字;若没有 `content:encoded` 且
 
 ```bash
 uv run python -m tests.test_lab5
-
-# 对已采集、尚无正文的条目回填(会访问原站,遵守缓存与间隔)
-uv run main.py enrich --limit 20
-uv run main.py stats    # with_content 应上升
 ```
+
+`uv run main.py enrich --limit 20` 还会先列出 `config/bilibili.yaml` 白名单里的 UP / 合集（见 [ADR-008](./adr/008-bilibili-transcript-whitelist.md)），合集全量 BV 落到 `data/bilibili_seasons/`。播放页不走 HTML 抽取。
+
+口播转写是另一条手动命令，不走 `enrich`：
+
+```bash
+uv run python -m tests.test_transcript
+uv run main.py transcript BV19d4y1D7n3
+```
+
+需要本机 **ffmpeg**、`.env` 里的 `STT_API_KEY`（资源 `volc.seedasr.auc`）和 `FISHNET_LLM_API_KEY`。产物在 `data/transcripts/`；该 BV 若已入库则同时写入 `items.content`。早报 PDF 仍不印口播栏。
 
 ## 思考题备忘
 
@@ -95,7 +102,7 @@ uv run main.py stats    # with_content 应上升
 
 ## 留给下一 Lab 的接口
 
-- `Item.content` 可空;Lab 7 打分用 `content or summary`。
+- `Item.content` 可空;Lab 7 打分用 `content or summary`。VIDEO 可由 `transcript` 写入见报稿，但仍不进打分池。
 - `Item.images` 是候选 URL(微信 / 见闻 / 知乎)。`enrich` 对这三家缺图的条目也会再抽;出报时 LLM/启发式挑 1–3 张下载到 `editions/{id}/images/`。
 - Lab 6 调度:正文抽取建议 6 小时一轮,不要跟热榜 30 分钟绑在同一 tick。
 - Lab 8 排版:正文仍来自 Markdown;配图写成 `![](images/…)` 后由 PDF/HTML 读本地文件。

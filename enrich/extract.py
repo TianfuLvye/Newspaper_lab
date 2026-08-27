@@ -19,7 +19,7 @@ import httpx
 import trafilatura
 from lxml import html as lhtml
 
-from core.schema import Item
+from core.schema import Item, Kind
 from core.settings import Settings, load_settings
 from core.store import Store
 from core.text import html_to_text, normalize_paragraphs, strip_zhihu_footer
@@ -699,6 +699,8 @@ def enrich_store(
                 break
     try:
         for it in queue:
+            if it.kind == Kind.VIDEO or "bilibili.com/video/" in (it.url or ""):
+                continue
             existing = it.content
             r = fill_item_content(it, fetcher=fetcher, settings=cfg)
             host = urlparse(it.url).netloc

@@ -61,10 +61,13 @@ def _job_collect(name: str, db_path: Path) -> None:
 
 
 def _job_enrich(db_path: Path, limit: int) -> None:
+    from enrich.bilibili import enrich_bilibili
     from enrich.extract import enrich_store
 
     store = Store(db_path)
     try:
+        bili = enrich_bilibili(store)
+        log.info("bili whitelist %s", bili)
         stats = enrich_store(store, limit=limit)
         log.info("enrich %s", stats)
     except Exception:

@@ -1,6 +1,7 @@
 """加载 config/settings.toml 与 sources.yaml。"""
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,23 @@ ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "config" / "settings.toml"
 SOURCES_PATH = ROOT / "config" / "sources.yaml"
 WECHAT_PATH = ROOT / "config" / "wechat.yaml"
+BILIBILI_PATH = ROOT / "config" / "bilibili.yaml"
+
+
+def load_env_file(path: Path | None = None) -> None:
+    """把仓库根目录 .env 填进 os.environ（已有的键不覆盖）。uv run 也会自动加载。"""
+    env_path = path or (ROOT / ".env")
+    if not env_path.exists():
+        return
+    for raw in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, value = line.split("=", 1)
+        name = name.strip()
+        if not name or name in os.environ:
+            continue
+        os.environ[name] = value.strip().strip("'").strip('"')
 
 
 def _expand_feed_rows(rows: list[dict], *, rsshub_url: str) -> list[dict]:
@@ -134,3 +152,15 @@ def load_targeted(path: Path | None = None) -> list[dict]:
     p = path or SOURCES_PATH
     cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     return [dict(row) for row in (cfg.get("targeted") or [])]
+
+
+def load_bilibili_whitelist(path: Path | None = None) -> dict:
+    """B 站口播白名单。文件不存在则两类都为空。"""
+    p = path or BILIBILI_PATH
+    if not p.exists():
+        return {"ups": [], "collections": []}
+    cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return {
+        "ups": list(cfg.get("ups") or []),
+        "collections": list(cfg.get("collections") or []),
+    }

@@ -11,15 +11,14 @@ hotlists:
 
 # Lab 3:RSS / RSSHub 订阅清单。
 # url 里可用 {rsshub} 占位,运行时替换为 settings.toml 的 [rsshub].base_url。
-# 验收要求 ≥10 源;下列以用户指定账号为核心,再补新番 / 财经 / 知乎日报早报等稳定源。
+# 验收要求 ≥10 源(sources.yaml + wechat.yaml);下列以用户指定账号为核心,再补新番 / 财经 / 知乎日报早报等稳定源。
 #
 # 用户指定:
 #   - 知乎 Thoughts Memo  L.M.Sherlock
 #   - 知乎 差评君          chai-ping-jun-80 (机构号 /org/)
 #   - 知乎日报             zhi-hu-ri-bao-51-41 (机构号,只收「| 早报 YYYYMMDD」)
-#   - B站 泛式             63231
-#   - B站 好柿花生_Peanut  435128088(用户口述「甜柿花生」)
 #   - 华尔街日报           官方 DJ RSS(RSSHub /wsj/zh-cn 现常 503)
+# 不定个人 B 站 UP:视频没有转写,进不了打分,订阅栏也印不出正文。
 # 知乎周刊已停更,不再订阅。热榜问题不在这里扒回答,点名后再拉。
 feeds:
   # —— 知乎 ——
@@ -45,29 +44,9 @@ feeds:
     # 此时用正文开头「嘿，这里是知乎早报」兜底。瞎扯等帖不含「早报」。
     title_regex: 早报
 
-  # —— B 站指定 UP + 新番 ——
-  - name: "泛式 投稿"
-    url: "{rsshub}/bilibili/user/video/63231"
-    source: bilibili
-    kind: video
-    weight: 2.0
-  - name: "泛式 动态"
-    url: "{rsshub}/bilibili/user/dynamic/63231"
-    source: bilibili
-    kind: post
-    weight: 1.5
-  - name: "好柿花生 投稿"
-    url: "{rsshub}/bilibili/user/video/435128088"
-    source: bilibili
-    kind: video
-    weight: 2.0
-  - name: "好柿花生 动态"
-    url: "{rsshub}/bilibili/user/dynamic/435128088"
-    source: bilibili
-    kind: post
-    weight: 1.5
-  # 不订「B站每周必看」:一条榜能吐几十条与个人订阅无关的视频,
-  # 会把报纸订阅版面挤满。新番用下面 Bangumi 日历即可。
+  # —— 新番 ——
+  # 不订个人 B 站 UP,也不订「B站每周必看」:视频没有转写,一条榜还能
+  # 吐几十条与订阅无关的片,会把报纸订阅版面挤满。新番用 Bangumi 日历。
   # 注意路由带点号 bangumi.tv(不是 bangumi/tv)
   - name: "Bangumi 今日放送"
     url: "{rsshub}/bangumi.tv/calendar/today"
