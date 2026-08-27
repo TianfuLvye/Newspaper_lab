@@ -43,6 +43,7 @@ def render_ranked_section(
     edition_id: str,
     start_n: int,
     intro: str,
+    images=None,
 ) -> str:
     now = datetime.now(CST).strftime("%Y-%m-%d %H:%M CST")
     lines = [
@@ -70,6 +71,11 @@ def render_ranked_section(
         if it.kind == Kind.VIDEO:
             lines.append("_视频暂不转写。_")
             lines.append("")
+        if images is not None:
+            block = images.markdown_for(it)
+            if block:
+                lines.append(block.rstrip())
+                lines.append("")
         if body:
             lines.append(body)
             lines.append("")
@@ -91,33 +97,36 @@ def render_ranked_section(
     return "\n".join(lines).rstrip() + "\n"
 
 
-def render_headline(result, *, edition_id: str) -> str:
+def render_headline(result, *, edition_id: str, images=None) -> str:
     return render_ranked_section(
         "头版",
         result.headline,
         edition_id=edition_id,
         start_n=1,
         intro="今日打分最高的几条,不是热度最高的几条。",
+        images=images,
     )
 
 
-def render_deepread(result, *, edition_id: str) -> str:
+def render_deepread(result, *, edition_id: str, images=None) -> str:
     return render_ranked_section(
         "深度阅读",
         result.deepread,
         edition_id=edition_id,
         start_n=1 + len(result.headline),
         intro="更像收藏夹里那种长度和口味的长文。",
+        images=images,
     )
 
 
-def render_critical(result, *, edition_id: str) -> str:
+def render_critical(result, *, edition_id: str, images=None) -> str:
     return render_ranked_section(
         "今日一问",
         result.critical,
         edition_id=edition_id,
         start_n=1 + len(result.headline) + len(result.deepread),
         intro="批判性思考分最高的内容。允许它和你的口味不太像。",
+        images=images,
     )
 
 

@@ -164,8 +164,8 @@ def estimate_area_cells(chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: in
         ts = title_size(art.section, chunk.part, types)
         title_h = estimate_title_height_mm(art.title, inner_w, ts, types)
 
-    img_h = estimate_well_height_mm(chunk.images, inner_w) if chunk.part == 0 else 0.0
-    img_w = estimate_well_width_mm(chunk.images, 80.0) if chunk.part == 0 else 0.0
+    img_h = estimate_well_height_mm(chunk.images, inner_w) if chunk.images else 0.0
+    img_w = estimate_well_width_mm(chunk.images, 80.0) if chunk.images else 0.0
     text_w = inner_w if img_w <= 0 else max(24.0, inner_w - img_w - 2.0)
     n_cols = max(1, column_count(text_w))
     body_h = text_height_mm(chunk.body, text_w / n_cols, types.body_pt, types.line_ratio) / n_cols
@@ -546,7 +546,7 @@ def _materialize(
     art = chunk.article
     title_rect: MmRect | None = None
     body_space = inner
-    images = list(chunk.images) if chunk.part == 0 else []
+    images = list(chunk.images)
 
     # 标题是占位元素:按自然高度参与版面计算,绝不压顶裁剪。
     # 装不下的正文走续文;标题永远完整示人。
@@ -618,7 +618,7 @@ def _materialize(
 
     kind = "placeholder" if art.empty else ("index" if art.role == "index" else "story")
     block = PlacedBlock(
-        chunk=Chunk(art, head, images if chunk.part == 0 else [], chunk.part, truncated),
+        chunk=Chunk(art, head, list(images), chunk.part, truncated),
         cells=cell,
         mm=mm,
         page=page_i,

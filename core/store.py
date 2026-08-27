@@ -41,7 +41,8 @@ CREATE TABLE IF NOT EXISTS items (
     score        REAL,
     cluster_id   TEXT,
     llm_summary  TEXT,
-    used_in      TEXT
+    used_in      TEXT,
+    images       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_items_fetched ON items(fetched_at);
 CREATE INDEX IF NOT EXISTS idx_items_src     ON items(source, kind);
@@ -102,6 +103,7 @@ _COLS = [
     "content_hash", "source", "kind", "title", "url", "summary", "content",
     "author", "author_id", "published_at", "fetched_at", "rank", "heat",
     "tags", "collector", "score", "cluster_id", "llm_summary", "used_in",
+    "images",
 ]
 
 
@@ -112,6 +114,7 @@ class Store:
         self._conn = sqlite3.connect(self.path, timeout=15, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(DDL)
+        self._migrate()
 
     @contextmanager
     def tx(self):
@@ -146,12 +149,20 @@ class Store:
                     new += 1
                 else:
                     dup += 1
-                    # 重复条目:刷新热度,并在原来没有正文时补上
+                    # 重复条目:刷新热度,并在原来没有正文/配图时补上
                     cur.execute(
                         "UPDATE items SET rank=?, heat=?, "
-                        "content=COALESCE(content, ?), summary=COALESCE(summary, ?) "
+                        "content=COALESCE(content, ?), summary=COALESCE(summary, ?), "
+                        "images=COALESCE(images, ?) "
                         "WHERE content_hash=?",
-                        (it.rank, it.heat, it.content, it.summary, it.content_hash),
+                        (
+                            it.rank,
+                            it.heat,
+                            it.content,
+                            it.summary,
+                            row.get("images"),
+                            it.content_hash,
+                        ),
                     )
                 if it.raw:
                     cur.execute(
@@ -214,6 +225,15 @@ class Store:
             [(edition, h) for h in hashes],
         )
 
+    def _migrate(self) -> None:
+        """旧库 CREATE TABLE IF NOT EXISTS 不会加新列。"""
+        cols = {r[1] for r in self._conn.execute("PRAGMA table_info(items)")}
+        if "images" not in cols:
+            try:
+                self._conn.execute("ALTER TABLE items ADD COLUMN images TEXT")
+            except sqlite3.OperationalError:
+                pass
+
     def items_missing_content(self, limit: int = 50) -> list[Item]:
         """Lab 5:尚未抽出正文、但有 http(s) 链接的条目。"""
         rows = self._conn.execute(
@@ -223,6 +243,32 @@ class Store:
             (limit,),
         ).fetchall()
         return [self._row_to_item(r) for r in rows]
+
+    def items_missing_images(self, limit: int = 50) -> list[Item]:
+        """微信 / 见闻 / 知乎里还没抽过配图候选的条目。images='[]' 表示已查过、没有图。"""
+        rows = self._conn.execute(
+            "SELECT * FROM items WHERE url LIKE 'http%' "
+            "AND (images IS NULL OR trim(images) = '') "
+            "AND ("
+            " url LIKE '%mp.weixin.qq.com/s%' "
+            " OR url LIKE '%wallstreetcn.com/articles%' "
+            " OR url LIKE '%wallstreetcn.com/livenews%' "
+            " OR url LIKE '%zhuanlan.zhihu.com/p/%' "
+            " OR url LIKE '%zhihu.com/p/%' "
+            " OR url LIKE '%/answer/%'"
+            ") "
+            "ORDER BY fetched_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [self._row_to_item(r) for r in rows]
+
+    def update_images(self, content_hash: str, images: list) -> None:
+        """回填配图候选。空列表也写,表示已经查过。"""
+        blob = json.dumps(images or [], ensure_ascii=False)
+        self._conn.execute(
+            "UPDATE items SET images=? WHERE content_hash=?",
+            (blob, content_hash),
+        )
 
     def update_content(self, content_hash: str, content: str) -> None:
         """回填 items.content。空字符串视为无效,不写。"""
@@ -447,8 +493,25 @@ class Store:
             collector=r["collector"], score=r["score"],
             cluster_id=r["cluster_id"], llm_summary=r["llm_summary"],
             used_in=r["used_in"], content_hash=r["content_hash"],
+            images=_parse_images_col(r),
         )
         return it
 
     def close(self):
         self._conn.close()
+
+
+def _parse_images_col(r: sqlite3.Row) -> list:
+    keys = r.keys()
+    if "images" not in keys:
+        return []
+    raw = r["images"]
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    try:
+        parsed = json.loads(raw)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return parsed if isinstance(parsed, list) else []

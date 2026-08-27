@@ -30,6 +30,7 @@ HAIR = HexColor("#222222")
 
 def write_pdf(layout: LayoutResult, path: Path) -> Path:
     path = Path(path)
+    image_base = path.parent
     fonts = register_pdf_fonts()
     types = TypeSpec.for_kind(layout.kind)
     w = mm_to_pt(layout.geom.page_w)
@@ -38,7 +39,7 @@ def write_pdf(layout: LayoutResult, path: Path) -> Path:
     c.setTitle(f"自动日报{('早报' if layout.kind == 'am' else '晚报')} · {layout.edition_id}")
     c.setAuthor("自动日报")
     for page in layout.pages:
-        _draw_page(c, layout, page, types, fonts.body, fonts.title, h)
+        _draw_page(c, layout, page, types, fonts.body, fonts.title, h, image_base=image_base)
         c.showPage()
     c.save()
     return path
@@ -46,6 +47,19 @@ def write_pdf(layout: LayoutResult, path: Path) -> Path:
 
 def _y(page_h_pt: float, top_mm: float) -> float:
     return page_h_pt - mm_to_pt(top_mm)
+
+
+def _resolve_image_file(src: str, base: Path | None) -> Path | None:
+    if not src:
+        return None
+    p = Path(src)
+    if p.is_file():
+        return p
+    if base is not None:
+        rel = base / src
+        if rel.is_file():
+            return rel
+    return None
 
 
 def _hline(c: canvas.Canvas, x1: float, x2: float, y_mm: float, page_h_pt: float, w: float = 0.45, color=None) -> None:
@@ -68,6 +82,8 @@ def _draw_page(
     body_font: str,
     title_font: str,
     page_h_pt: float,
+    *,
+    image_base: Path | None = None,
 ) -> None:
     c.setFillColor(white)
     c.rect(0, 0, mm_to_pt(layout.geom.page_w), page_h_pt, fill=1, stroke=0)
@@ -78,7 +94,9 @@ def _draw_page(
         elif block.kind == "inside":
             _draw_inside(c, block, body_font, title_font, page_h_pt)
         else:
-            _draw_article(c, block, types, body_font, title_font, page_h_pt)
+            _draw_article(
+                c, block, types, body_font, title_font, page_h_pt, image_base=image_base
+            )
 
     _draw_gutters(c, page, page_h_pt)
 
@@ -257,6 +275,8 @@ def _draw_article(
     body_font: str,
     title_font: str,
     page_h_pt: float,
+    *,
+    image_base: Path | None = None,
 ) -> None:
     r = block.mm
     ch = block.chunk
@@ -308,9 +328,10 @@ def _draw_article(
         iw, ih = mm_to_pt(ib.rect.w), mm_to_pt(ib.rect.h)
         drawn = False
         src = ib.image.src
-        if src and Path(src).exists():
+        file = _resolve_image_file(src, image_base)
+        if file is not None:
             try:
-                c.drawImage(src, ix, iy, iw, ih, preserveAspectRatio=True, mask="auto")
+                c.drawImage(str(file), ix, iy, iw, ih, preserveAspectRatio=True, mask="auto")
                 drawn = True
             except Exception:
                 drawn = False

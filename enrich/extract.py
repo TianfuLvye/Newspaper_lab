@@ -6,10 +6,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 from urllib.robotparser import RobotFileParser
@@ -22,6 +23,7 @@ from core.schema import Item
 from core.settings import Settings, load_settings
 from core.store import Store
 from core.text import html_to_text, normalize_paragraphs, strip_zhihu_footer
+from enrich.images import harvest_page_images, harvest_wscn_payload, is_photo_host
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -53,6 +55,7 @@ class ExtractResult:
     extractor: str = ""
     from_cache: bool = False
     error: str | None = None
+    images: list[dict] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -350,6 +353,37 @@ class PoliteFetcher:
         self._write_cache(url, html)
         return html, False
 
+    def get_bytes(
+        self,
+        url: str,
+        *,
+        referer: str | None = None,
+        max_bytes: int = 8 * 1024 * 1024,
+    ) -> bytes:
+        """下载图片字节。走同域间隔与 robots,不走 HTML 缓存。"""
+        cap = min(max_bytes, 8 * 1024 * 1024)
+        if not self._robots_ok(url):
+            raise PermissionError(f"robots.txt 禁止抓取: {url}")
+        self._wait(urlparse(url).netloc)
+        headers = {"Accept": "image/avif,image/webp,image/*,*/*;q=0.8"}
+        if referer:
+            headers["Referer"] = referer
+        r = self._client.get(url, headers=headers)
+        r.raise_for_status()
+        data = r.content
+        if len(data) > cap:
+            raise ValueError(f"image too large: {len(data)} > {cap}")
+        ctype = (r.headers.get("content-type") or "").lower()
+        magic_ok = (
+            data[:8] == b"\x89PNG\r\n\x1a\n"
+            or data[:2] == b"\xff\xd8"
+            or data[:4] == b"RIFF"
+            or data[:6] in (b"GIF87a", b"GIF89a")
+        )
+        if magic_ok or "image/" in ctype:
+            return data
+        raise ValueError(f"not an image: {ctype or url}")
+
     def get_json(self, url: str) -> dict:
         """同源 JSON(华尔街见闻 API)。走同样的间隔,不走 HTML 缓存。"""
         self._wait(urlparse(url).netloc)
@@ -365,6 +399,24 @@ class PoliteFetcher:
         if not isinstance(data, dict):
             raise ValueError(f"JSON 根节点不是对象: {url}")
         return data
+
+
+def _attach_images(
+    result: ExtractResult,
+    url: str,
+    *,
+    html: str | None = None,
+    payload: dict | None = None,
+) -> None:
+    found: list[dict] = []
+    if payload is not None:
+        found.extend(harvest_wscn_payload(payload))
+    if html:
+        found.extend(harvest_page_images(url, html))
+    if found:
+        from enrich.images import prune_candidates
+
+        result.images = prune_candidates(found)
 
 
 def _with_fallback(
@@ -425,6 +477,7 @@ def extract(
                         result.title = title
                         result.text = body
                         result.extractor = "wallstreetcn_api"
+                        _attach_images(result, url, payload=data)
                         return _with_fallback(
                             _apply_quality(
                                 result, min_chars=min_n, accept_short=accept_short
@@ -475,6 +528,7 @@ def extract(
             result.text = strip_zhihu_footer(result.text)
         result.author = author
         result.extractor = extractor or "none"
+        _attach_images(result, url, html=page)
         return _with_fallback(
             _apply_quality(result, min_chars=min_n, accept_short=accept_short),
             fallback_text,
@@ -498,6 +552,84 @@ def extract(
             fetcher.close()
 
 
+def fallback_text_for_item(item: Item) -> str | None:
+    """抽取失败时顶上的正文:优先已有 content,再退到 summary。
+
+    `summary` 入库时截成 500 字;拿它当 fallback 会把 RSS 全文盖掉。
+    """
+    content = (item.content or "").strip()
+    summary = (item.summary or "").strip()
+    if len(content) >= len(summary) and content:
+        return content
+    return summary or content or None
+
+
+def should_replace_content(existing: str | None, incoming: str | None) -> bool:
+    """只允许用更长的正文覆盖。短摘要、登录壳、RSS fallback 都不能回写。"""
+    new = (incoming or "").strip()
+    if not new:
+        return False
+    return len(new) > len((existing or "").strip())
+
+
+def text_from_rss_payload(payload: dict | None) -> str:
+    """从 feedparser 原始字段里取出最长的一段纯文本。"""
+    if not payload:
+        return ""
+    blobs: list[str] = []
+    for c in payload.get("content") or []:
+        if isinstance(c, dict) and c.get("value"):
+            blobs.append(str(c["value"]))
+        elif isinstance(c, str) and c.strip():
+            blobs.append(c)
+    for key in ("content_encoded", "summary", "description"):
+        v = payload.get(key)
+        if isinstance(v, str) and v.strip():
+            blobs.append(v)
+        elif isinstance(v, dict) and v.get("value"):
+            blobs.append(str(v["value"]))
+    best = ""
+    for blob in blobs:
+        text = strip_zhihu_footer(html_to_text(blob))
+        if len(text) > len(best):
+            best = text
+    return best
+
+
+def _is_sliced_summary_stub(content: str | None, summary: str | None) -> bool:
+    """展示用 summary 截在 500 字;正文若就是这段摘要,就是被占住了。"""
+    c = (content or "").strip()
+    s = (summary or "").strip()
+    if not c:
+        return False
+    if len(c) > 500:
+        return False
+    if s and (c == s or s.startswith(c)):
+        return True
+    return len(c) == 500
+
+
+def restore_truncated_rss_content(store: Store) -> int:
+    """content 被 500 字 summary 占住时,从 raw_payloads 把更长的 RSS 正文捞回来。"""
+    rows = store._conn.execute(
+        "SELECT i.content_hash, i.content, i.summary, r.payload "
+        "FROM items i JOIN raw_payloads r USING (content_hash)"
+    ).fetchall()
+    n = 0
+    for content_hash, content, summary, payload_s in rows:
+        if not _is_sliced_summary_stub(content, summary):
+            continue
+        try:
+            payload = json.loads(payload_s)
+        except (TypeError, json.JSONDecodeError):
+            continue
+        recovered = text_from_rss_payload(payload)
+        if should_replace_content(content, recovered):
+            store.update_content(content_hash, recovered)
+            n += 1
+    return n
+
+
 def fill_item_content(
     item: Item,
     *,
@@ -505,18 +637,24 @@ def fill_item_content(
     min_chars: int | None = None,
     settings: Settings | None = None,
 ) -> ExtractResult:
-    """抽取并回填 Item.content。质量不够则保持 None(降级为标题+summary)。"""
+    """抽取并回填 Item.content。质量不够则保持 None(降级为标题+summary)。
+
+    已有更长正文时不覆盖;失败 fallback 用 content 而不是截断过的 summary。
+    """
     result = extract(
         item.url,
         fetcher=fetcher,
         min_chars=min_chars,
         settings=settings,
-        fallback_text=item.summary,
+        fallback_text=fallback_text_for_item(item),
     )
     if result.ok and result.text:
-        item.content = result.text
+        if should_replace_content(item.content, result.text):
+            item.content = result.text
         if result.author and not item.author:
             item.author = result.author
+    if result.images:
+        item.images = result.images
     return result
 
 
@@ -536,20 +674,45 @@ def enrich_store(
         delay_seconds=cfg.extract_delay_seconds,
         robots_override_hosts=cfg.extract_robots_override_hosts,
     )
-    stats = {"ok": 0, "degraded": 0, "blocked": 0, "error": 0, "cached": 0}
+    stats = {
+        "ok": 0,
+        "degraded": 0,
+        "blocked": 0,
+        "error": 0,
+        "cached": 0,
+        "images": 0,
+        "restored": 0,
+    }
+    stats["restored"] = restore_truncated_rss_content(store)
+    if stats["restored"]:
+        print(f"  restored {stats['restored']} truncated rss bodies from raw_payloads")
+    seen: set[str] = set()
+    queue: list[Item] = []
+    for it in store.items_missing_content(limit=limit):
+        queue.append(it)
+        seen.add(it.content_hash)
+    for it in store.items_missing_images(limit=limit):
+        if it.content_hash not in seen:
+            queue.append(it)
+            seen.add(it.content_hash)
+            if len(queue) >= limit * 2:
+                break
     try:
-        for it in store.items_missing_content(limit=limit):
+        for it in queue:
+            existing = it.content
             r = fill_item_content(it, fetcher=fetcher, settings=cfg)
             host = urlparse(it.url).netloc
             title = (it.title or "")[:32]
             print(
                 f"  [{r.tier:9s}] {host:24s} {title!r} "
-                f"{r.extractor} n={len(r.text or '')} {(r.error or '')[:80]}"
+                f"{r.extractor} n={len(r.text or '')} imgs={len(r.images)} "
+                f"{(r.error or '')[:80]}"
             )
             if r.from_cache:
                 stats["cached"] += 1
             if r.ok and r.text:
-                store.update_content(it.content_hash, r.text)
+                if should_replace_content(existing, r.text):
+                    store.update_content(it.content_hash, r.text)
                 stats["ok"] += 1
             elif r.tier == "blocked":
                 stats["blocked"] += 1
@@ -557,6 +720,10 @@ def enrich_store(
                 stats["error"] += 1
             else:
                 stats["degraded"] += 1
+            if is_photo_host(it.url) and r.tier not in ("error", "blocked"):
+                store.update_images(it.content_hash, r.images or [])
+                if r.images:
+                    stats["images"] += 1
     finally:
         if own:
             fetcher.close()

@@ -71,7 +71,7 @@ def parse_edition_dir(edition_dir: Path) -> tuple[list[Article], EditionMeta]:
             )
             continue
         text = path.read_text(encoding="utf-8")
-        articles.extend(_parse_section(text, section, kicker, role))
+        articles.extend(_parse_section(text, section, kicker, role, base=edition_dir))
     if not any(a.section == "headline" for a in articles):
         # 只有 digest.md 的退化路径
         digest = edition_dir / "digest.md"
@@ -103,7 +103,9 @@ def _meta_from_text(text: str, *, fallback: str) -> EditionMeta:
     return EditionMeta(edition_id=eid, kind=kind, generated=gen)
 
 
-def _parse_section(text: str, section: str, kicker: str, role: str) -> list[Article]:
+def _parse_section(
+    text: str, section: str, kicker: str, role: str, *, base: Path | None = None
+) -> list[Article]:
     if "本栏目今日无数据" in text[:400] or "本栏目今日无入选" in text[:400]:
         return [
             Article(
@@ -158,7 +160,7 @@ def _parse_section(text: str, section: str, kicker: str, role: str) -> list[Arti
         for i, (title, body) in enumerate(parts):
             if "已上头版" in body or "此处不重复全文" in body:
                 continue
-            out.append(_story(section, kicker, title, body, i))
+            out.append(_story(section, kicker, title, body, i, base=base))
         if not parts:
             out.append(
                 Article(
@@ -177,7 +179,7 @@ def _parse_section(text: str, section: str, kicker: str, role: str) -> list[Arti
 
     stories = []
     for i, (title, body) in enumerate(parts):
-        stories.append(_story(section, kicker, title, body, i))
+        stories.append(_story(section, kicker, title, body, i, base=base))
     if not stories:
         return [
             Article(
@@ -195,13 +197,15 @@ def _parse_section(text: str, section: str, kicker: str, role: str) -> list[Arti
     return stories
 
 
-def _story(section: str, kicker: str, title: str, body: str, idx: int) -> Article:
+def _story(
+    section: str, kicker: str, title: str, body: str, idx: int, *, base: Path | None = None
+) -> Article:
     fn = ""
     m = _FN.match(title.strip())
     if m:
         fn = f"F{int(m.group(1)):02d}"
         title = m.group(2).strip()
-    body, images, url, byline = _clean_story_body(body)
+    body, images, url, byline = _clean_story_body(body, base=base)
     return Article(
         id=fn or f"{section}-{idx+1:02d}",
         section=section,
@@ -269,15 +273,17 @@ def _subscribe_toc(text: str) -> str:
     return m.group(1).strip()
 
 
-def _clean_story_body(text: str) -> tuple[str, list[ImageSpec], str, str]:
+def _clean_story_body(
+    text: str, *, base: Path | None = None
+) -> tuple[str, list[ImageSpec], str, str]:
     images: list[ImageSpec] = []
 
     def on_md(m: re.Match) -> str:
-        images.append(ImageSpec(src=m.group(2).strip(), alt=m.group(1), caption=m.group(1)))
+        images.append(_image_spec(m.group(2).strip(), m.group(1), m.group(1), base))
         return ""
 
     def on_html(m: re.Match) -> str:
-        images.append(ImageSpec(src=m.group(1).strip()))
+        images.append(_image_spec(m.group(1).strip(), "", "", base))
         return ""
 
     text = _IMG_RE.sub(on_md, text)
@@ -313,6 +319,25 @@ def _clean_story_body(text: str) -> tuple[str, list[ImageSpec], str, str]:
         out.append(line.rstrip())
     body = re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
     return body, images[:3], url, byline
+
+
+def _image_spec(src: str, alt: str, caption: str, base: Path | None) -> ImageSpec:
+    w, h = 1200, 800
+    path = None
+    if src:
+        p = Path(src)
+        if p.is_file():
+            path = p
+        elif base is not None and (base / src).is_file():
+            path = base / src
+        if path is not None:
+            try:
+                from enrich.images import image_size
+
+                w, h = image_size(path)
+            except Exception:
+                pass
+    return ImageSpec(src=src, alt=alt or "", caption=caption or "", width_px=w, height_px=h)
 
 
 def _parse_digest_fallback(text: str) -> list[Article]:

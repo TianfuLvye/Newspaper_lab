@@ -10,8 +10,9 @@
 2. **站点路由**: 微信公众号 / 知乎专栏 / 澎湃走 XPath;华尔街见闻走公开 JSON API;其它走 trafilatura。
 3. **礼貌**: 同 URL 24h 磁盘缓存、同域 ≥1.5s、浏览器 UA、默认遵守 robots.txt。
 4. **质量门**: `quality_score`;正文太短或像导航 → 尝试 RSS `summary` 兜底,再不行才 `content=None`。
-5. **入库**: `Store.update_content` + `uv run main.py enrich --limit 20`(逐条打印 tier / host / extractor)。
-6. **测试**: `uv run python -m tests.test_lab5`(20 页语料 + 微信 override / 见闻 API / summary 兜底,不访问外网)。
+5. **入库**: `Store.update_content` / `update_images` + `uv run main.py enrich --limit 20`(逐条打印 tier / host / extractor / imgs)。
+6. **配图候选**: 微信 `data-src`、知乎 `data-original`、见闻 API `image` + content `<img>`;出报再筛。
+7. **测试**: `uv run python -m tests.test_lab5`(20 页语料 + 微信 override / 见闻 API / summary 兜底 / 配图去噪,不访问外网)。
 
 ## 对应验收点
 
@@ -65,13 +66,15 @@
 | 见闻快讯 `meta_only` | 快讯全文经常只有 80~150 字,被 `min_chars=200` 丢掉 | 对 `/livenews/` 放行短正文,记 `partial` |
 | 见闻图表 `meta_only` | `/charts/{id}` 没有文章 API,RSS 摘要也往往只有一句 | 跳过 HTML,保留标题;同题通常另有 `/articles/` 条目 |
 
-RSS 采集侧:展示用 `summary` 仍截 500 字;若没有 `content:encoded` 且全文 summary ≥80 字,把完整 summary 写入 `content`,避免快讯在入库前就被截断。
+RSS 采集侧:展示用 `summary` 仍截 500 字;若没有 `content:encoded` 且全文 summary ≥80 字,把完整 summary 写入 `content`,避免快讯在入库前就被截断。`enrich` 失败 fallback 优先用已有 `content`;回写时只允许更长的正文覆盖更短的,避免 500 字摘要把 RSS 全文盖掉。被占住的条目会在 enrich 开头从 `raw_payloads` 捞回。
 
 `uv run main.py stats` 会打印 `with_content` / `missing`。`N new, M dup` 是最近一次 **采集** 的数字,不是 enrich。B 站 / 抖音条目本来就没有网页正文,missing 会长期高于「新闻条数」。
 
 ### `enrich_store`
 
-- 只处理 `content` 为空且 URL 以 http 开头的行。
+- 开头先从 `raw_payloads` 把被 500 字摘要占住的 `content` 捞回。
+- 再处理 `content` 为空、以及配图候选缺失的 http(s) 条目。
+- 回写 `content` 只允许更长的正文覆盖更短的。
 - 失败隔离:一条 403 不影响下一条。
 - 每条打印 `[tier] host title extractor`,方便对照实战里到底是 blocked 还是空壳 HTML。
 
@@ -93,5 +96,6 @@ uv run main.py stats    # with_content 应上升
 ## 留给下一 Lab 的接口
 
 - `Item.content` 可空;Lab 7 打分用 `content or summary`。
+- `Item.images` 是候选 URL(微信 / 见闻 / 知乎)。`enrich` 对这三家缺图的条目也会再抽;出报时 LLM/启发式挑 1–3 张下载到 `editions/{id}/images/`。
 - Lab 6 调度:正文抽取建议 6 小时一轮,不要跟热榜 30 分钟绑在同一 tick。
-- Lab 8 排版:只渲染摘要,不把 `content` 整篇塞进 PDF。
+- Lab 8 排版:正文仍来自 Markdown;配图写成 `![](images/…)` 后由 PDF/HTML 读本地文件。

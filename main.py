@@ -211,7 +211,8 @@ def cmd_enrich(args: argparse.Namespace) -> int:
         stats = enrich_store(store, limit=args.limit)
         print(
             f"enrich ok={stats['ok']} degraded={stats['degraded']} "
-            f"blocked={stats['blocked']} error={stats['error']} cached={stats['cached']}"
+            f"blocked={stats['blocked']} error={stats['error']} "
+            f"cached={stats['cached']} restored={stats.get('restored', 0)}"
         )
         return 0
     finally:

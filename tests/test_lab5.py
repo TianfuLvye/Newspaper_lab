@@ -340,6 +340,287 @@ def test_rss_summary_fallback_when_html_empty():
     check("blocked fallback tagged", "rss_fallback" in r2.extractor, r2.extractor)
 
 
+def test_fallback_does_not_clobber_longer_content():
+    long_body = "黑格尔不配被称为哲学家，他只不过是个故弄玄虚的臭神棍。" * 40
+    stub = long_body[:500]
+    item = Item(
+        source=Source.ZHIHU,
+        kind=Kind.ARTICLE,
+        title="为什么很多名人，都歧视黑格尔?",
+        url="https://www.zhihu.com/question/1/answer/2",
+        summary=stub,
+        content=long_body,
+        collector="test_lab5",
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith("robots.txt"):
+            return httpx.Response(200, text="User-agent: *\nDisallow: /\n")
+        return httpx.Response(403, text="denied")
+
+    tmp = Path(tempfile.mkdtemp()) / "cache"
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = PoliteFetcher(
+        tmp,
+        delay_seconds=0,
+        client=client,
+        robots_override_hosts=("www.zhihu.com",),
+    )
+    try:
+        r = fill_item_content(item, fetcher=fetcher)
+    finally:
+        fetcher.close()
+        client.close()
+    check("kept full content", item.content == long_body)
+    check("did not fall back to 500-char summary", len(item.content) > 500)
+    check("fallback still tagged", "rss_fallback" in r.extractor, r.extractor)
+
+
+def test_restore_truncated_rss_from_raw():
+    from enrich.extract import restore_truncated_rss_content
+
+    long_body = "黑格尔不配被称为哲学家，他只不过是个故弄玄虚的臭神棍。" * 40
+    stub = long_body[:500]
+    tmp = Path(tempfile.mkdtemp()) / "lab5-restore.db"
+    store = Store(tmp)
+    item = Item(
+        source=Source.ZHIHU,
+        kind=Kind.ARTICLE,
+        title="为什么很多名人，都歧视黑格尔?",
+        url="https://www.zhihu.com/question/549228275/answer/9",
+        summary=stub,
+        content=stub,
+        collector="rss_thoughts_memo_回答",
+        raw={"summary": f"<p>{long_body}</p>"},
+    )
+    store.upsert_items([item])
+    n = restore_truncated_rss_content(store)
+    got = store.get_item(item.content_hash)
+    store.close()
+    check("restored one row", n == 1, str(n))
+    check("content longer than 500", got is not None and len(got.content or "") > 500)
+    check("recovered body", bool(got and long_body[:20] in (got.content or "")))
+
+
+def test_restore_skips_already_full_body():
+    from enrich.extract import restore_truncated_rss_content
+
+    body = "已经抽好的干净正文。" * 80
+    tmp = Path(tempfile.mkdtemp()) / "lab5-skip.db"
+    store = Store(tmp)
+    item = Item(
+        source=Source.FINANCE,
+        kind=Kind.ARTICLE,
+        title="见闻稿",
+        url="https://wallstreetcn.com/articles/1",
+        summary=body[:500],
+        content=body,
+        collector="rss_华尔街见闻_全球",
+        raw={"summary": "<p>" + ("相关推荐广告。" * 120) + "</p>"},
+    )
+    store.upsert_items([item])
+    n = restore_truncated_rss_content(store)
+    got = store.get_item(item.content_hash)
+    store.close()
+    check("did not overwrite full body", n == 0, str(n))
+    check("kept extract", got is not None and got.content == body)
+
+
+def test_enrich_store_keeps_longer_content():
+    from enrich.extract import enrich_store
+
+    long_body = "正经回答正文段落。" * 80
+    stub = long_body[:500]
+    tmp = Path(tempfile.mkdtemp())
+    store = Store(tmp / "keep.db")
+    item = Item(
+        source=Source.ZHIHU,
+        kind=Kind.ARTICLE,
+        title="长回答",
+        url="https://www.zhihu.com/question/1/answer/99",
+        summary=stub,
+        content=long_body,
+        collector="test_lab5",
+    )
+    store.upsert_items([item])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if str(request.url).endswith("robots.txt"):
+            return httpx.Response(200, text="User-agent: *\nDisallow: /\n")
+        return httpx.Response(403, text="denied")
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = PoliteFetcher(
+        tmp / "cache",
+        delay_seconds=0,
+        client=client,
+        robots_override_hosts=("www.zhihu.com",),
+    )
+    try:
+        enrich_store(store, limit=10, fetcher=fetcher)
+        got = store.get_item(item.content_hash)
+    finally:
+        fetcher.close()
+        client.close()
+        store.close()
+    check("enrich kept long body", got is not None and got.content == long_body)
+
+
+def test_weixin_and_zhihu_harvest_images():
+    from enrich.images import harvest_page_images, heuristic_pick, pick_images, prune_candidates
+
+    wx = """<!doctype html><html><body>
+    <div id="activity-name">有图推文</div>
+    <div id="js_content">
+      <p>""" + ("正文段落。" * 40) + """</p>
+      <img data-src="https://mmbiz.qpic.cn/mmbiz_jpg/GOODPIC/640?wx_fmt=jpeg" alt="现场"/>
+      <img class="profile_avatar" src="https://mmbiz.qpic.cn/mmhead/AVATAR/64"/>
+      <img data-src="https://mmbiz.qpic.cn/mmbiz_png/QRCODE/0?wx_fmt=png" class="js_next_card"/>
+    </div></body></html>"""
+    r = extract("https://mp.weixin.qq.com/s/imgdemo", wx)
+    urls = [c["url"] for c in r.images]
+    check("weixin keeps data-src body image", any("GOODPIC" in u for u in urls), str(urls))
+    check("weixin drops avatar", not any("AVATAR" in u or "mmhead" in u for u in urls), str(urls))
+    check("weixin drops qr/share card", not any("QRCODE" in u or "js_next_card" in u for u in urls), str(urls))
+
+    zh = """<!doctype html><html><body>
+    <h1 class="Post-Title">专栏</h1>
+    <div class="Post-RichText">
+      <p>""" + ("正文段落。" * 40) + """</p>
+      <img data-original="https://pic1.zhimg.com/v2-good_720w.jpg" alt="示意图"/>
+      <img class="Avatar" src="https://pic1.zhimg.com/v2-face_s.jpg"/>
+    </div></body></html>"""
+    r2 = extract("https://zhuanlan.zhihu.com/p/9001", zh)
+    urls2 = [c["url"] for c in r2.images]
+    check("zhihu keeps data-original", any("v2-good" in u for u in urls2), str(urls2))
+    check("zhihu drops avatar", not any("_s.jpg" in u or "face" in u for u in urls2), str(urls2))
+
+    noisy = prune_candidates(
+        [
+            {"url": "https://mmbiz.qpic.cn/mmhead/x/64", "alt": "头", "role": "body"},
+            {"url": "https://example.com/cover.jpg", "alt": "封面", "role": "cover"},
+            {"url": "https://example.com/a.jpg", "alt": "一", "role": "body"},
+            {"url": "https://example.com/b.jpg", "alt": "二", "role": "body"},
+            {"url": "https://example.com/c.jpg", "alt": "三", "role": "body"},
+        ]
+    )
+    picked = heuristic_pick(noisy, max_keep=3)
+    check("heuristic drops avatar url", all("mmhead" not in c["url"] for c in noisy))
+    check("heuristic prefers cover first", picked and picked[0]["role"] == "cover", str(picked))
+    check("heuristic ≤3", len(picked) <= 3)
+
+    def fake_llm(title, body, cands):
+        return {"keep": [0], "captions": ["封面"]}
+
+    llm_picked = pick_images("t", "b" * 20, noisy, llm_fn=fake_llm)
+    check("mock llm keep index", len(llm_picked) == 1 and llm_picked[0]["role"] == "cover")
+
+    from enrich.images import harvest_rss_html
+
+    rss_imgs = harvest_rss_html(
+        ['<p>摘要</p><img src="https://mmbiz.qpic.cn/mmbiz_jpg/RSSPIC/640?wx_fmt=jpeg" alt="rss"/>'],
+        page_url="https://mp.weixin.qq.com/s/fromrss",
+    )
+    check("rss html harvest", any("RSSPIC" in c["url"] for c in rss_imgs), str(rss_imgs))
+
+
+def test_wallstreetcn_images_from_api():
+    spa = "<html><body><div id='app'></div></body></html>"
+    body = "华尔街见闻正文段落。" * 40
+    payload = {
+        "code": 20000,
+        "data": {
+            "title": "美股收盘",
+            "image": "https://image.wallstreetcn.com/cover.jpg",
+            "content": f'<p>{body}</p><img src="https://image.wallstreetcn.com/chart.png" alt="图"/>',
+        },
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("robots.txt"):
+            return httpx.Response(200, text="User-agent: *\nAllow: /\n")
+        if "/apiv1/content/articles/" in path:
+            return httpx.Response(200, json=payload)
+        return httpx.Response(200, text=spa)
+
+    tmp = Path(tempfile.mkdtemp()) / "cache"
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    fetcher = PoliteFetcher(tmp, delay_seconds=0, client=client)
+    try:
+        r = extract("https://wallstreetcn.com/articles/3765999", fetcher=fetcher)
+    finally:
+        fetcher.close()
+        client.close()
+    urls = [c["url"] for c in r.images]
+    check("wscn cover from api", any("cover.jpg" in u for u in urls), str(urls))
+    check("wscn content img", any("chart.png" in u for u in urls), str(urls))
+
+
+def test_store_images_column_and_missing_query():
+    tmp = Path(tempfile.mkdtemp()) / "img.db"
+    store = Store(tmp)
+    it = Item(
+        source=Source.WECHAT_MP,
+        kind=Kind.ARTICLE,
+        title="有图",
+        url="https://mp.weixin.qq.com/s/abc",
+        collector="test",
+    )
+    store.upsert_items([it])
+    missing = store.items_missing_images(limit=10)
+    check("null images is missing", any(x.content_hash == it.content_hash for x in missing))
+    store.update_images(it.content_hash, [{"url": "https://mmbiz.qpic.cn/mmbiz_jpg/X/640", "role": "body"}])
+    got = store.get_item(it.content_hash)
+    check("images roundtrip", bool(got and got.images and "mmbiz_jpg" in got.images[0]["url"]))
+    check("after fill not missing", not store.items_missing_images(limit=10))
+    store.update_images(it.content_hash, [])
+    check("empty list means checked", not store.items_missing_images(limit=10))
+    store.close()
+
+
+def test_materialize_writes_local_jpeg():
+    import io
+
+    from PIL import Image as PILImage
+
+    from enrich.images import ImageMaterializer
+
+    buf = io.BytesIO()
+    PILImage.new("RGB", (800, 400), (12, 34, 56)).save(buf, format="JPEG")
+    jpeg = buf.getvalue()
+
+    class _Fake:
+        def get_bytes(self, url, referer=None):
+            return jpeg
+
+        def close(self):
+            pass
+
+    dest = Path(tempfile.mkdtemp())
+    it = Item(
+        source=Source.WECHAT_MP,
+        kind=Kind.ARTICLE,
+        title="现场",
+        url="https://mp.weixin.qq.com/s/xyz",
+        content="正文" * 40,
+        collector="test",
+        images=[{"url": "https://mmbiz.qpic.cn/mmbiz_jpg/GOOD/640?wx_fmt=jpeg", "alt": "现场", "role": "cover"}],
+    )
+    mat = ImageMaterializer(
+        dest,
+        fetcher=_Fake(),
+        llm_fn=lambda t, b, c: {"keep": [0], "captions": ["现场"]},
+    )
+    try:
+        md = mat.markdown_for(it)
+    finally:
+        mat.close()
+    check("markdown 相对路径", md.startswith("![现场](images/") and md.strip().endswith(".jpg)"))
+    files = list((dest / "images").glob("*.jpg"))
+    check("下载落盘", len(files) == 1, str(files))
+
+
 def test_docs():
     check("lab-05 doc exists", DOC.exists())
     text = DOC.read_text(encoding="utf-8")
@@ -357,7 +638,15 @@ def main():
     test_wallstreetcn_uses_json_api_not_spa()
     test_wallstreetcn_live_short_is_partial()
     test_rss_summary_fallback_when_html_empty()
+    test_fallback_does_not_clobber_longer_content()
+    test_restore_truncated_rss_from_raw()
+    test_restore_skips_already_full_body()
+    test_enrich_store_keeps_longer_content()
     test_enrich_store_fills_content()
+    test_weixin_and_zhihu_harvest_images()
+    test_wallstreetcn_images_from_api()
+    test_store_images_column_and_missing_query()
+    test_materialize_writes_local_jpeg()
     test_docs()
     print("All Lab 5 checks passed.")
 

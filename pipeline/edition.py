@@ -78,7 +78,9 @@ def _drop_hashes(items: list, skip: set[str]) -> list:
     return [it for it in items if it.content_hash not in skip]
 
 
-def _run_ranked(store: Store, kind: str, edition_id: str) -> tuple[list[SectionResult], object]:
+def _run_ranked(
+    store: Store, kind: str, edition_id: str, *, images=None
+) -> tuple[list[SectionResult], object]:
     from pipeline.rank import rank_for_edition
 
     result = rank_for_edition(store, kind)
@@ -86,7 +88,7 @@ def _run_ranked(store: Store, kind: str, edition_id: str) -> tuple[list[SectionR
         SectionResult(
             name="headline",
             filename="01_headline.md",
-            markdown=render_headline(result, edition_id=edition_id),
+            markdown=render_headline(result, edition_id=edition_id, images=images),
             hashes=[ri.item.content_hash for ri in result.headline],
             has_content=bool(result.headline),
             items=[ri.item for ri in result.headline],
@@ -94,7 +96,7 @@ def _run_ranked(store: Store, kind: str, edition_id: str) -> tuple[list[SectionR
         SectionResult(
             name="deepread",
             filename="03_deepread.md",
-            markdown=render_deepread(result, edition_id=edition_id),
+            markdown=render_deepread(result, edition_id=edition_id, images=images),
             hashes=[ri.item.content_hash for ri in result.deepread],
             has_content=bool(result.deepread),
             items=[ri.item for ri in result.deepread],
@@ -102,7 +104,7 @@ def _run_ranked(store: Store, kind: str, edition_id: str) -> tuple[list[SectionR
         SectionResult(
             name="critical",
             filename="07_critical.md",
-            markdown=render_critical(result, edition_id=edition_id),
+            markdown=render_critical(result, edition_id=edition_id, images=images),
             hashes=[ri.item.content_hash for ri in result.critical],
             has_content=bool(result.critical),
             items=[ri.item for ri in result.critical],
@@ -131,6 +133,7 @@ def _run_subscriptions(
     collector_names: set[str] | None,
     skip: set[str] | None = None,
     already: dict[str, str] | None = None,
+    images=None,
 ) -> SectionResult:
     items = collect_subscription_items(
         store,
@@ -141,7 +144,7 @@ def _run_subscriptions(
         max_per_collector=4,
     )
     # 头版抢走的条目仍留在订阅目录里,只是不重复印全文。
-    md = render_subscriptions_md(items, window_hours=48, already=already)
+    md = render_subscriptions_md(items, window_hours=48, already=already, images=images)
     hashes = [
         it.content_hash
         for it in items
@@ -230,6 +233,10 @@ def produce_edition(
     dest.mkdir(parents=True, exist_ok=True)
     board_names = boards if boards is not None else [r["board"] for r in load_hotlist_sources()]
 
+    from enrich.images import ImageMaterializer
+
+    materializer = ImageMaterializer(dest)
+
     run_id = store.start_run(f"edition_{kind}")
     t0 = time.monotonic()
     deadline = deadline_minutes * 60
@@ -243,7 +250,7 @@ def produce_edition(
     elapsed = time.monotonic() - t0
     if elapsed < deadline:
         try:
-            ranked_secs, rank_result = _run_ranked(store, kind, eid)
+            ranked_secs, rank_result = _run_ranked(store, kind, eid, images=materializer)
             sections.extend(ranked_secs)
             cn = {"headline": "头版", "deepread": "深度阅读", "critical": "今日一问"}
             n = 0
@@ -272,7 +279,9 @@ def produce_edition(
         ("hotlist", "热榜速览", "02_hotlist.md",
          lambda: _run_hotlist(store, board_names, ranked_skip)),
         ("subscriptions", "订阅更新", "06_subscribe.md",
-         lambda: _run_subscriptions(store, rss_collectors, ranked_skip, already_ranked)),
+         lambda: _run_subscriptions(
+             store, rss_collectors, ranked_skip, already_ranked, images=materializer
+         )),
     ]
 
     for name, title, fname, fn in content_jobs:
@@ -318,6 +327,9 @@ def produce_edition(
     )
     digest_path = dest / "digest.md"
     digest_path.write_text(digest, encoding="utf-8")
+    for sec in sections:
+        if sec.filename:
+            (dest / sec.filename).write_text(sec.markdown, encoding="utf-8")
     try:
         from render.newspaper import render_newspaper
 
@@ -334,9 +346,6 @@ def produce_edition(
             log.warning("[%s] pdf error: %s", eid, news.error)
     except Exception as e:
         log.warning("[%s] newspaper render failed: %s", eid, repr(e))
-    for sec in sections:
-        if sec.filename:
-            (dest / sec.filename).write_text(sec.markdown, encoding="utf-8")
     item_rows = []
     seen_items: set[str] = set()
     for sec in sections:
@@ -388,6 +397,7 @@ def produce_edition(
         len(failures),
         digest_path,
     )
+    materializer.close()
     return EditionResult(
         edition_id=eid,
         kind=kind,

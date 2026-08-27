@@ -7,7 +7,7 @@
 
 1. **A3 矩阵排版**: 297×420 mm 切成 6 栏 × 14 行。每篇文章占一块矩形,不允许 L 形绕排。
 2. **过长分页**: 正文量字后切成续页,写「下转第 N 版 / 上接第 M 版」。单篇最多 2–3 页,再长截断并指向 `items/`。
-3. **配图算法预留**: `render/layout/images.py` 处理 1–3 张图(顶井 / 左井 / 英雄+两小图),缩放与溢出到续页。现在没有真实配图管道,占位灰框也能跑通。
+3. **配图**: `enrich/images.py` 从微信 / 华尔街见闻 / 知乎收候选,出报时启发式或 LLM 挑 1–3 张下载到 `images/`。`render/layout/images.py` 切图井;没有文件就不切框。
 4. **双输出**: `digest.html`(手机扫读 + 浏览器打印兜底)和 `digest.pdf`(归档)。中间层 Markdown 不动。
 5. **今日综述**: 头版报头里约 200 字。有 `FISHNET_LLM_API_KEY` 调一次 LLM,否则抽头版首句。
 6. **CLI**: `uv run main.py render --edition am` 出报时顺带排版;`uv run main.py pdf --edition 2026-08-26-am` 只排版、不打 `used_in`。
@@ -36,6 +36,7 @@
 - **目的**: 文章矩形内切一块图井,正文仍是**一块矩形**。
 - **为什么保持矩形**: L 形绕排会让分页和量字两套逻辑分叉,图还没稳定时不值得。
 - **1/2/3 张**: 横图靠上、竖图靠左、三张走英雄+两小图;短边小于 28mm 改 cover,再小就 overflow 到续页。
+- **真实文件**: Markdown `![说明](images/xxx.jpg)` 相对期次目录;PDF 按这个路径 `drawImage`,HTML 同源相对路径。候选来自 `Item.images`,出报时才下载。
 
 ### `render/layout/engine.py` · `layout_edition`
 

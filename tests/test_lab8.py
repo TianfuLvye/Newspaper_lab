@@ -371,6 +371,36 @@ wide = [
 ]
 check("宽稿切成多条竖栏", not wide or max(wide) >= 2, str(wide))
 
+print("\n[Lab 8] 真实配图文件")
+from PIL import Image as PILImage
+
+img_dir = tmp / "images"
+img_dir.mkdir(exist_ok=True)
+jpg = img_dir / "hero.jpg"
+PILImage.new("RGB", (1600, 900), (30, 40, 50)).save(jpg, format="JPEG")
+(tmp / "01_headline.md").write_text(
+    "# 头版\n\n## F01 · 带图稿\n\n"
+    "![横图](images/hero.jpg)\n\n"
+    "这是早餐该读完的一段中文。配图应该进图井。\n\n"
+    + ("第二段把格子撑高。" * 20)
+    + "\n",
+    encoding="utf-8",
+)
+news_img = render_newspaper(tmp, kind="am", edition_id="test-lab8-img")
+parsed_img, _ = parse_edition_dir(tmp)
+art_img = next(a for a in parsed_img if a.section == "headline" and a.role == "story")
+check("解析到本地图", bool(art_img.images) and "hero.jpg" in art_img.images[0].src)
+check(
+    "读到像素宽高",
+    art_img.images[0].width_px == 1600 and art_img.images[0].height_px == 900,
+    f"{art_img.images[0].width_px}x{art_img.images[0].height_px}",
+)
+n_real = sum(len(b.image_boxes) for p in news_img.layout.pages for b in p.blocks)
+check("排进图框", n_real >= 1, str(n_real))
+html_img = news_img.html_path.read_text(encoding="utf-8")
+check("HTML 用相对路径", "images/hero.jpg" in html_img)
+check("PDF 仍写出", bool(news_img.pdf_path and news_img.pdf_path.exists()))
+
 from main import build_parser
 
 p = build_parser()

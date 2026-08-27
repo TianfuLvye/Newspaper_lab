@@ -140,6 +140,7 @@ def render_item_md(
     *,
     heading_level: int = 2,
     already: str | None = None,
+    images=None,
 ) -> str:
     """单篇离线可读稿。链接只作为附注明文,不充当正文。"""
     hashes = "#" * heading_level
@@ -163,9 +164,19 @@ def render_item_md(
         lines.append("_视频暂不转写，只保留标题和链接。_")
         lines.append("")
     elif body:
+        if images is not None:
+            block = images.markdown_for(it)
+            if block:
+                lines.append(block.rstrip())
+                lines.append("")
         lines.append(body)
         lines.append("")
     else:
+        if images is not None:
+            block = images.markdown_for(it)
+            if block:
+                lines.append(block.rstrip())
+                lines.append("")
         lines.append("_库里没有正文。热榜/视频常如此;文章则多半是抽取失败。_")
         lines.append("")
     if it.url and it.url.startswith("http"):
@@ -181,6 +192,7 @@ def render_subscriptions_md(
     window_hours: int = 48,
     feeds: list[dict] | None = None,
     already: dict[str, str] | None = None,
+    images=None,
 ) -> str:
     now = datetime.now(CST).strftime("%Y-%m-%d %H:%M CST")
     feed_rows = feeds if feeds is not None else load_feeds()
@@ -230,6 +242,7 @@ def render_subscriptions_md(
                 it,
                 heading_level=2,
                 already=already.get(it.content_hash),
+                images=images,
             ).rstrip()
         )
         lines.append("")

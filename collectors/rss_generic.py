@@ -16,6 +16,7 @@ import feedparser
 from core.base import BaseCollector
 from core.schema import Item, Kind, Source
 from core.text import html_to_text, is_zhihu_skip_title, strip_zhihu_footer
+from enrich.images import harvest_rss_html
 
 
 def slugify(name: str) -> str:
@@ -78,6 +79,21 @@ def _entry_to_raw(entry: Any) -> dict:
         else:
             out[k] = str(v)[:2000]
     return out
+
+
+def _entry_html_blobs(entry: Any) -> list[str]:
+    blobs: list[str] = []
+    for c in entry.get("content") or []:
+        val = c.get("value") if isinstance(c, dict) else None
+        if val and "<" in str(val):
+            blobs.append(str(val))
+    encoded = entry.get("content_encoded") or entry.get("content:encoded")
+    if encoded and "<" in str(encoded):
+        blobs.append(str(encoded))
+    summary = entry.get("summary") or entry.get("description") or ""
+    if summary and "<" in str(summary):
+        blobs.append(str(summary))
+    return blobs
 
 
 class RSSCollector(BaseCollector):
@@ -147,6 +163,7 @@ class RSSCollector(BaseCollector):
             published = _parse_struct_time(
                 e.get("published_parsed") or e.get("updated_parsed")
             )
+            images = harvest_rss_html(_entry_html_blobs(e), page_url=link)
             yield Item(
                 source=source,
                 kind=kind,
@@ -159,4 +176,5 @@ class RSSCollector(BaseCollector):
                 collector=self.name,
                 tags=tags,
                 raw=_entry_to_raw(e),
+                images=images,
             )

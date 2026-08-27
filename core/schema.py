@@ -170,6 +170,9 @@ class Item:
 
     content_hash: str = ""
 
+    # 配图候选(url / alt / width / height / role)。出报时再筛 1–3 张下载。
+    images: list[dict] = field(default_factory=list)
+
     # --- 派生 ---
     def normalized_url(self) -> str:
         return normalize_url(self.url)
@@ -217,6 +220,7 @@ class Item:
         d["published_at"] = self.published_at.isoformat() if self.published_at else None
         d["fetched_at"] = self.fetched_at.isoformat()
         d["tags"] = json.dumps(self.tags, ensure_ascii=False)
+        d["images"] = json.dumps(self.images, ensure_ascii=False) if self.images else None
         d.pop("raw", None)
         return d
 

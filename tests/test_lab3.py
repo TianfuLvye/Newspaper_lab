@@ -130,6 +130,12 @@ def test_rss_collector_local_feed():
           <category>lab3</category>
         </item>
         <item>
+          <title>Long Hegel essay</title>
+          <link>https://example.com/hegel</link>
+          <description><![CDATA[<p>""" + ("黑格尔不配被称为哲学家，他只不过是个故弄玄虚的臭神棍。" * 40) + """</p>]]></description>
+          <pubDate>Wed, 03 Jan 2024 12:00:00 GMT</pubDate>
+        </item>
+        <item>
           <title>Second</title>
           <link>https://example.com/b</link>
           <description>only summary</description>
@@ -149,23 +155,26 @@ def test_rss_collector_local_feed():
         }
         c = RSSCollector(cfg)
         items = list(c.collect())
-        check("local feed yields 2", len(items) == 2, str(len(items)))
+        check("local feed yields 3", len(items) == 3, str(len(items)))
         check("content extracted", items[0].content is not None and len(items[0].content) > 80)
         check("summary stripped", items[0].summary == "摘要一段")
         check("source enum", items[0].source == Source.RSS)
         check("published tz-aware", items[0].published_at is not None)
         check("tags", "lab3" in items[0].tags)
         check("collector name", c.name.startswith("rss_"))
+        long_item = next(it for it in items if "Long Hegel" in it.title)
+        check("long rss summary kept full in content", len(long_item.content or "") > 500)
+        check("display summary sliced to 500", len(long_item.summary or "") == 500)
 
         db = Path(td) / "t.db"
         store = Store(db)
         try:
             new, dup = store.upsert_items(items)
-            check("upsert new", new == 2 and dup == 0)
+            check("upsert new", new == 3 and dup == 0)
             # 再采一次应全 dup
             items2 = list(c.collect())
             new2, dup2 = store.upsert_items(items2)
-            check("idempotent", new2 == 0 and dup2 == 2)
+            check("idempotent", new2 == 0 and dup2 == 3)
         finally:
             store.close()
 

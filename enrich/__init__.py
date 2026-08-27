@@ -7,6 +7,7 @@ from enrich.extract import (
     quality_score,
     enrich_store,
 )
+from enrich.images import ImageMaterializer, harvest_page_images, pick_images
 
 __all__ = [
     "ExtractResult",
@@ -14,4 +15,7 @@ __all__ = [
     "fill_item_content",
     "quality_score",
     "enrich_store",
+    "ImageMaterializer",
+    "harvest_page_images",
+    "pick_images",
 ]
