@@ -51,6 +51,64 @@ def wrap_text(text: str, width_mm: float, font_size_pt: float) -> list[str]:
     return lines
 
 
+def _title_char_em(ch: str) -> float:
+    """标题黑体加粗,拉丁比正文 char_em 更宽,避免 CIA 一类缩写被塞进末行。"""
+    w = char_em(ch)
+    if ord(ch) < 128 and (ch.isalpha() or ch in "%@&"):
+        return max(w, 0.72)
+    return w
+
+
+def wrap_title(text: str, width_mm: float, font_size_pt: float) -> list[str]:
+    """标题折行:拉丁词不拆,可用宽留 4% 给加粗/浏览器,比 wrap_text 更保守。"""
+    if width_mm <= 1.0 or font_size_pt <= 0:
+        return []
+    max_em = (width_mm * 0.96) / (font_size_pt * MM_PER_PT)
+    if max_em < 1:
+        max_em = 1.0
+    lines: list[str] = []
+    raw = (text or "").replace("\r\n", "\n").replace("\r", "\n")
+    for para in raw.split("\n"):
+        if para == "":
+            lines.append("")
+            continue
+        cur = ""
+        cur_em = 0.0
+        i = 0
+        n = len(para)
+        while i < n:
+            ch = para[i]
+            if ch.isascii() and ch.isalnum():
+                j = i + 1
+                while j < n and para[j].isascii() and para[j].isalnum():
+                    j += 1
+                token = para[i:j]
+                tw = sum(_title_char_em(c) for c in token)
+                if cur and cur_em + tw > max_em + 1e-6:
+                    lines.append(cur)
+                    cur, cur_em = "", 0.0
+                if tw > max_em + 1e-6 and not cur:
+                    # 超长拉丁词单独成行,不按字母切开(接近 CSS 对 word 的处理)
+                    lines.append(token)
+                    i = j
+                    continue
+                cur += token
+                cur_em += tw
+                i = j
+                continue
+            w = _title_char_em(ch)
+            if cur and cur_em + w > max_em + 1e-6:
+                lines.append(cur)
+                cur, cur_em = ch, w
+            else:
+                cur += ch
+                cur_em += w
+            i += 1
+        if cur:
+            lines.append(cur)
+    return lines
+
+
 def line_height_mm(font_size_pt: float, line_ratio: float) -> float:
     return font_size_pt * MM_PER_PT * line_ratio
 
@@ -306,7 +364,8 @@ def title_size(section: str, part: int, types: TypeSpec, *, lead: bool = False) 
 
 
 def estimate_title_height_mm(title: str, width_mm: float, size_pt: float, types: TypeSpec) -> float:
-    h = text_height_mm(title, width_mm, size_pt, line_ratio=1.12)
+    lines = wrap_title(title, width_mm, size_pt)
+    h = len(lines) * line_height_mm(size_pt, 1.12)
     return h + types.kicker_bar_mm + 2.2
 
 

@@ -11,6 +11,7 @@ from core.settings import load_feeds, load_settings
 from core.store import Store
 from core.text import (
     display_title,
+    format_dateline,
     is_zhihu_activity_item,
     item_published_at,
     readable_body,
@@ -129,10 +130,7 @@ def collect_subscription_items(
 
 
 def _fmt_when(it: Item) -> str:
-    t = it.published_at or it.fetched_at
-    if not t:
-        return "时间未知"
-    return t.astimezone(CST).strftime("%Y-%m-%d %H:%M CST")
+    return format_dateline(item_published_at(it)) or "时间未知"
 
 
 def render_item_md(
@@ -147,10 +145,13 @@ def render_item_md(
     kind = it.kind.value if isinstance(it.kind, Kind) else str(it.kind)
     title = display_title(it)
     body = item_body(it)
+    when = _fmt_when(it)
+    who = it.author or ""
+    head = " · ".join(x for x in (when, it.source.value, who) if x)
     lines = [
         f"{hashes} {title}",
         "",
-        f"> {it.source.value} · {it.author or it.collector} · {_fmt_when(it)} · `{it.collector}`",
+        f"> {head}",
         "",
     ]
     if already:

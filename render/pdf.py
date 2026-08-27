@@ -20,6 +20,7 @@ from render.layout.measure import (
     punch_columns,
     title_size,
     wrap_text,
+    wrap_title,
 )
 from render.layout.images import wrap_obstacles
 from render.layout.model import LayoutResult, PageLayout, PlacedBlock
@@ -315,10 +316,11 @@ def _draw_article(
             block.title_rect.inset(t=types.kicker_bar_mm),
             title_font,
             ts,
-            1.10,
+            1.12,
             INK,
             page_h_pt,
             justify=False,
+            wrap=wrap_title,
         )
         if ch.part == 0 and ch.article.byline:
             c.setFillColor(MUTED)
@@ -659,13 +661,14 @@ def _draw_wrapped(
     page_h_pt: float,
     *,
     justify: bool = False,
+    wrap=wrap_text,
 ) -> None:
     if rect.w <= 1 or rect.h <= 1 or not text:
         return
     c.setFillColor(color)
     c.setFont(font, size_pt)
     lh = line_height_mm(size_pt, line_ratio)
-    lines = wrap_text(text, rect.w, size_pt)
+    lines = wrap(text, rect.w, size_pt)
     cursor = rect.y + size_pt * MM_PER_PT * 0.90
     for j, line in enumerate(lines):
         if cursor > rect.bottom - 0.3:

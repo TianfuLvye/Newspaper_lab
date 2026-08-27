@@ -7,6 +7,7 @@ from pathlib import Path
 from core.schema import Item
 from core.settings import load_settings
 from core.store import Store
+from core.text import format_dateline, item_published_at
 
 CST = timezone(timedelta(hours=8))
 
@@ -74,8 +75,10 @@ def render_hotlist_md(
     lines.append("热榜本身是标题流,没有文章。有平台摘要的写在标题下面;没有的就只能看标题。")
     lines.append("")
     for i, it in enumerate(items, start=1):
+        when = format_dateline(item_published_at(it))
+        extra = f" · {when}" if when else ""
         lines.append(
-            f"{i}. **{it.title}** · {it.source.value} · 热度 {_fmt_heat(it.heat)}"
+            f"{i}. **{it.title}** · {it.source.value}{extra} · 热度 {_fmt_heat(it.heat)}"
         )
         blurb = (it.summary or "").strip()
         if blurb:

@@ -297,8 +297,8 @@ def _clean_story_body(
         if s.startswith(">"):
             if "总分" in s or "挑战了" in s:
                 continue
-            if byline == "" and "·" in s:
-                byline = s.lstrip("> ").strip()[:80]
+            if byline == "":
+                byline = s.lstrip("> ").strip().strip("`")[:80]
             continue
         if s.startswith("读完再打点"):
             continue

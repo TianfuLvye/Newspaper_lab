@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 from render.layout.engine import density_mode, layout_edition
 from render.layout.grid import CellRect, MmRect, PageGeom
 from render.layout.images import classify, plan_image_slots, wrap_obstacles
-from render.layout.measure import chars_that_fit, column_count, punch_columns, wrap_text, split_body
+from render.layout.measure import chars_that_fit, column_count, punch_columns, wrap_text, wrap_title, split_body
 from render.layout.model import Article, ImageSpec
 from render.layout.pack import MaxRects, no_overlaps
 from render.lede import extractive_lede
@@ -85,6 +85,19 @@ check("超出纸面放不下", pack.place(6, 12) is None)
 print("\n[Lab 8] 中文折行")
 lines = wrap_text("渔网计划把一张 A3 切成矩阵。Hello, world.", 40, 9)
 check("折出行 > 1", len(lines) >= 2, str(lines))
+cia_title = "要求基辅暂停攻击，行程目的引发猜测，CIA局长敏感时刻突访莫斯科"
+cia_title_lines = wrap_title(cia_title, 41.53, 17.8)
+cia_body_lines = wrap_text(cia_title, 41.53, 17.8)
+check(
+    "窄栏标题按加粗拉丁折行,不少于 6 行",
+    len(cia_title_lines) >= 6,
+    str(cia_title_lines),
+)
+check(
+    "标题折行比正文 wrap 更保守",
+    len(cia_title_lines) > len(cia_body_lines),
+    f"title={len(cia_title_lines)} body={len(cia_body_lines)}",
+)
 n = chars_that_fit("甲" * 400, 60, 20, 9, 1.35, columns=False)
 check("高度限制截断", 20 < n < 400, str(n))
 check("宽块切成竖栏", column_count(120) >= 2, str(column_count(120)))
@@ -94,6 +107,26 @@ check("竖栏比整块窄", len(crs) == 4 and crs[0].w < 50, str(crs[0].w if crs
 sample = "甲" * 12 + "。乙" * 40 + "。"
 head, tail = split_body(sample, 20)
 check("续文在句号切开", (not tail) or head.endswith("。"), repr(head[-8:]))
+
+print("\n[Lab 8] 刊出时间")
+from datetime import datetime, timedelta, timezone
+from core.text import format_dateline
+
+_cst = timezone(timedelta(hours=8))
+_now = datetime(2026, 8, 27, 14, 0, tzinfo=_cst)
+check("今天几点几分", format_dateline(_now.replace(hour=9, minute=5), now=_now) == "今天 09:05")
+check("昨天几点几分", format_dateline(_now - timedelta(days=1), now=_now) == "昨天 14:00")
+check("更早只写年月日", format_dateline(datetime(2026, 8, 20, 8, 0, tzinfo=_cst), now=_now) == "2026年8月20日")
+check("没有时间则空", format_dateline(None) == "")
+_date_dir = Path(tempfile.mkdtemp())
+(_date_dir / "01_headline.md").write_text(
+    "# 头版\n\n## F01 · 有日期的稿\n\n> 总分 0.10 · sim 0.10\n> 今天 09:05\n\n正文一段。\n",
+    encoding="utf-8",
+)
+_dated, _ = parse_edition_dir(_date_dir)
+_hit = next(a for a in _dated if a.section == "headline" and a.role == "story")
+check("题下吃到刊出时间", _hit.byline == "今天 09:05", _hit.byline)
+check("刊出时间不进正文", "今天 09:05" not in _hit.body and "总分" not in _hit.body)
 
 print("\n[Lab 8] 长文分页")
 arts = [
@@ -388,7 +421,7 @@ for m in re.finditer(
 ):
     w_, h_, s_ = float(m.group(1)), float(m.group(2)), float(m.group(3))
     t_ = _unesc(re.sub(r"<[^>]+>", "", m.group(4)))
-    need = len(wrap_text(t_, w_, s_)) * _lh_mm(s_, 1.12)
+    need = len(wrap_title(t_, w_, s_)) * _lh_mm(s_, 1.12)
     if need > h_ + 1.0:
         bad_titles.append((t_[:10], round(need, 1), h_))
 check("标题按自然高度占位,盒高装得下整题", not bad_titles, str(bad_titles[:3]))

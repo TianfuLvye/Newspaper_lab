@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core.schema import Kind
-from core.text import display_title, readable_body
+from core.text import display_title, format_dateline, item_published_at, readable_body
 
 CST = timezone(timedelta(hours=8))
 
@@ -66,6 +66,9 @@ def render_ranked_section(
         lines.append(f"> {_score_line(ri)}")
         if ri.critic and ri.critic.angle:
             lines.append(f"> 挑战了: {ri.critic.angle} — {ri.critic.reason}")
+        when = format_dateline(item_published_at(it))
+        if when:
+            lines.append(f"> {when}")
         lines.append("")
         body = readable_body(it)
         if it.kind == Kind.VIDEO:

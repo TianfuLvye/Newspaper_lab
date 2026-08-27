@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from html import unescape
 
 _BLOCK_BREAK = re.compile(
@@ -121,3 +122,26 @@ def display_title(it) -> str:
 def item_published_at(it):
     """出报窗口看刊出时间;没有 published_at 才退到抓取时间。"""
     return getattr(it, "published_at", None) or getattr(it, "fetched_at", None)
+
+
+CST = timezone(timedelta(hours=8))
+
+
+def format_dateline(when, *, now: datetime | None = None) -> str:
+    """报纸题下的刊出时间:今天/昨天写到分钟,更早只写年月日。"""
+    if when is None:
+        return ""
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=CST)
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=CST)
+    local = when.astimezone(CST)
+    today = now.astimezone(CST).date()
+    day = local.date()
+    hm = local.strftime("%H:%M")
+    if day == today:
+        return f"今天 {hm}"
+    if day == today - timedelta(days=1):
+        return f"昨天 {hm}"
+    return f"{day.year}年{day.month}月{day.day}日"
