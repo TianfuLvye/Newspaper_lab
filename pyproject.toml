@@ -17,6 +17,8 @@ dependencies = [
     "reportlab>=4.4.3",
     "pillow>=11.0.0",
     "yt-dlp>=2025.3.31",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.4",
 ]
 
 [dependency-groups]

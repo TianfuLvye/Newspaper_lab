@@ -490,6 +490,22 @@ class Store:
                           c("SELECT source, COUNT(*) FROM items GROUP BY source")},
         }
 
+    def latest_runs_by_collector(self) -> dict[str, dict]:
+        """每个 collector 最近一次运行。控制台用来画状态点。"""
+        rows = self._conn.execute(
+            """
+            SELECT r.collector, r.status, r.started_at, r.finished_at,
+                   r.new_count, r.item_count, r.error
+            FROM collector_runs r
+            JOIN (
+                SELECT collector, MAX(id) AS id
+                FROM collector_runs
+                GROUP BY collector
+            ) t ON r.id = t.id
+            """
+        ).fetchall()
+        return {str(r["collector"]): dict(r) for r in rows}
+
     # ------------------------------------------------------------------ helper
     @staticmethod
     def _row_to_item(r: sqlite3.Row) -> Item:

@@ -34,6 +34,7 @@ uv run main.py render --edition am          # Lab 6/7/8 出一期早报(含 PDF)
 uv run main.py pdf --edition 2026-08-26-am  # 只排版已有 digest,不打 used_in
 uv run main.py health                       # Lab 6 系统体检
 uv run main.py serve                        # Lab 6 常驻调度
+uv run main.py console                      # 本机订阅台 http://127.0.0.1:8787
 uv run main.py golden                       # Lab 7 拟合收藏夹画像
 uv run main.py ab --kind am                 # Lab 7 热度 vs 打分对照(不标记 used_in)
 uv run main.py feedback --edition DATE-am --n 1 --label 1
@@ -77,6 +78,7 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | core/registry.py | 1/3/4 | 从 sources.yaml 实例化热榜网 + RSS + 定向采集 |
 | collectors/hotlist_generic.py | 1 | DailyHotApi 通用热榜采集器 |
 | collectors/rss_generic.py | 3 | 通用 RSS / RSSHub 采集器 |
+| console/ | — | 本机订阅台：粘贴链接改 YAML（`main.py console`） |
 | collectors/targeted_xhs.py | 4 | 子进程调 MediaCrawler,jsonl → Item |
 | enrich/extract.py | 5 | trafilatura 正文抽取、缓存、质量降级 |
 | scheduler/run.py | 6 | APScheduler:撒网 interval + 早晚 cron |

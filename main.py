@@ -15,6 +15,7 @@
   uv run main.py feedback --edition DATE-am --n 1 --label 1
   uv run main.py health                  # Lab 6 系统体检
   uv run main.py serve                   # Lab 6 常驻调度
+  uv run main.py console                 # 本机网页控制台，改订阅源
   uv run main.py stats
 """
 from __future__ import annotations
@@ -25,7 +26,7 @@ from pathlib import Path
 
 from core.base import run_collector
 from core.registry import all_collectors, get_collector, list_collector_names
-from core.settings import load_hotlist_sources, load_settings
+from core.settings import load_env_file, load_hotlist_sources, load_settings
 from core.store import Store
 from render.hotlist import write_hotlist_section
 from render.subscriptions import write_subscriptions_section
@@ -273,6 +274,19 @@ def cmd_serve(args: argparse.Namespace) -> int:
     from scheduler.run import serve
 
     return serve(db_path=args.db, include_targeted=not args.no_targeted)
+
+
+def cmd_console(args: argparse.Namespace) -> int:
+    """本机网页控制台：增删改 RSS 订阅源。"""
+    import uvicorn
+
+    from console.app import create_app
+
+    load_env_file()
+    app = create_app(db_path=args.db)
+    print(f"订阅台 http://{args.host}:{args.port}/")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+    return 0
 
 
 def cmd_pdf(args: argparse.Namespace) -> int:
@@ -674,6 +688,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="不调度 Lab 4 定向采集(默认:已配置 creator_id 的才会挂上)",
     )
     p_serve.set_defaults(func=cmd_serve)
+
+    p_console = sub.add_parser(
+        "console",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="本机网页控制台，管理 RSS 订阅源",
+        description=(
+            "打开 http://127.0.0.1:8787 ，粘贴知乎主页或公众号文章链接即可写入 YAML。\n"
+            "只绑 localhost。内置 sources.yaml 不会被改写，新源进 overlay.yaml / wechat.yaml。"
+        ),
+        epilog=(
+            "示例:\n"
+            "  uv run main.py console\n"
+            "  uv run main.py console --port 8788"
+        ),
+    )
+    p_console.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="监听地址（默认 127.0.0.1）",
+    )
+    p_console.add_argument(
+        "--port",
+        type=int,
+        default=8787,
+        help="端口（默认 8787）",
+    )
+    p_console.set_defaults(func=cmd_console)
 
     p_push = sub.add_parser(
         "push",

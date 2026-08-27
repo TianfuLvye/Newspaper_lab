@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fishnet 订阅台</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="sheet">
+    <header class="masthead">
+      <p class="kicker">Fishnet Lab · 本机控制台</p>
+      <h1>订阅台</h1>
+      <p class="lede">粘贴知乎主页或公众号文章链接，写入 YAML。采集器下次 <code>collect</code> 就会捞。</p>
+    </header>
+
+    <section class="composer" aria-label="快速添加">
+      <label for="paste">快速添加</label>
+      <div class="paste-row">
+        <input id="paste" type="url" autocomplete="off" placeholder="https://www.zhihu.com/people/… 或 https://mp.weixin.qq.com/s/…" />
+        <button type="button" id="btn-detect" class="ink">识别</button>
+      </div>
+      <p class="hint" id="meta-hint"></p>
+      <div id="draft" class="draft hidden"></div>
+    </section>
+
+    <section class="toolbar">
+      <nav class="chips" aria-label="分类">
+        <button type="button" class="chip on" data-cat="all">全部</button>
+        <button type="button" class="chip" data-cat="zhihu">知乎</button>
+        <button type="button" class="chip" data-cat="wechat">微信</button>
+        <button type="button" class="chip" data-cat="finance">财经</button>
+        <button type="button" class="chip" data-cat="other">其他</button>
+      </nav>
+      <div class="toolbar-right">
+        <input id="q" type="search" placeholder="搜索名称 / URL" />
+        <button type="button" id="btn-import" class="ghost">从 WeWe 导入</button>
+      </div>
+    </section>
+
+    <p id="banner" class="banner hidden" role="status"></p>
+
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>名称</th>
+            <th>来源</th>
+            <th>权重</th>
+            <th>最近采集</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <dialog id="edit-dialog">
+    <form id="edit-form" method="dialog">
+      <h2>改订阅</h2>
+      <input type="hidden" name="original" />
+      <label>显示名 <input name="name" required /></label>
+      <label>URL <input name="url" required /></label>
+      <label>source <input name="source" required /></label>
+      <label>kind <input name="kind" required /></label>
+      <label>权重 <input name="weight" type="number" step="0.1" /></label>
+      <label>标题过滤 <input name="title_regex" placeholder="可选，如 早报" /></label>
+      <label>间隔（分钟） <input name="interval_minutes" type="number" min="1" /></label>
+      <menu>
+        <button type="submit" class="ink" value="save">保存</button>
+        <button type="button" class="ghost" id="edit-cancel" value="cancel">取消</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <dialog id="wewe-dialog">
+    <div class="wewe-box">
+      <h2>WeWe RSS 公众号</h2>
+      <p class="hint">勾选尚未写入 wechat.yaml 的号，一键接入 Fishnet。</p>
+      <div id="wewe-list"></div>
+      <menu>
+        <button type="button" class="ink" id="wewe-go">导入勾选</button>
+        <button type="button" class="ghost" id="wewe-close">关闭</button>
+      </menu>
+    </div>
+  </dialog>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

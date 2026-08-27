@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "config" / "settings.toml"
 SOURCES_PATH = ROOT / "config" / "sources.yaml"
 WECHAT_PATH = ROOT / "config" / "wechat.yaml"
+OVERLAY_PATH = ROOT / "config" / "overlay.yaml"
 BILIBILI_PATH = ROOT / "config" / "bilibili.yaml"
 
 
@@ -75,6 +76,7 @@ class Settings:
     edition_am_minute: int = 0
     edition_pm_hour: int = 18
     edition_pm_minute: int = 0
+    wewe_url: str = "http://127.0.0.1:4000"
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -95,6 +97,7 @@ def load_settings(path: Path | None = None) -> Settings:
     if not cache_dir.is_absolute():
         cache_dir = ROOT / cache_dir
     sched = data.get("scheduler", {})
+    wewe = data.get("wewe", {})
 
     def _abs(raw: str) -> Path:
         pth = Path(raw)
@@ -127,6 +130,7 @@ def load_settings(path: Path | None = None) -> Settings:
         edition_am_minute=int(sched.get("am_minute", 0)),
         edition_pm_hour=int(sched.get("pm_hour", 18)),
         edition_pm_minute=int(sched.get("pm_minute", 0)),
+        wewe_url=str(wewe.get("base_url", "http://127.0.0.1:4000")).rstrip("/"),
     )
 
 
@@ -137,13 +141,75 @@ def load_hotlist_sources(path: Path | None = None) -> list[dict]:
     return list(cfg.get("hotlists") or [])
 
 
-def load_feeds(path: Path | None = None, *, rsshub_url: str | None = None) -> list[dict]:
-    """返回已展开 {rsshub} 占位的 feed 配置列表（sources.yaml + 可选 wechat.yaml）。"""
+def empty_overlay() -> dict:
+    return {"feeds": [], "replacements": [], "disabled": []}
+
+
+def load_overlay(path: Path | None = None) -> dict:
+    """控制台 overlay：新增 feeds、按 name 覆盖内置字段、disabled 隐藏内置源。"""
+    p = path or OVERLAY_PATH
+    if not p.exists():
+        return empty_overlay()
+    cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    return {
+        "feeds": [dict(row) for row in (cfg.get("feeds") or [])],
+        "replacements": [dict(row) for row in (cfg.get("replacements") or [])],
+        "disabled": [str(x) for x in (cfg.get("disabled") or [])],
+    }
+
+
+def apply_overlay(builtin: list[dict], overlay: dict | None) -> list[dict]:
+    """把 overlay 套到 sources.yaml 的 feeds 上（不含 wechat）。"""
+    ov = overlay or empty_overlay()
+    disabled = {str(n) for n in ov.get("disabled") or []}
+    repl: dict[str, dict] = {}
+    for row in ov.get("replacements") or []:
+        name = str(row.get("name") or "")
+        if name:
+            repl[name] = dict(row)
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for row in builtin:
+        name = str(row.get("name") or "")
+        if not name or name in disabled:
+            continue
+        merged = dict(row)
+        extra = dict(repl.get(name) or {})
+        extra.pop("name", None)
+        merged.update(extra)
+        merged["name"] = name
+        out.append(merged)
+        seen.add(name)
+
+    for row in ov.get("feeds") or []:
+        name = str(row.get("name") or "")
+        if not name or name in disabled or name in seen:
+            continue
+        out.append(dict(row))
+        seen.add(name)
+    return out
+
+
+def load_feeds(
+    path: Path | None = None,
+    *,
+    rsshub_url: str | None = None,
+    overlay_path: Path | None = None,
+    wechat_path: Path | None = None,
+) -> list[dict]:
+    """返回已展开 {rsshub} 占位的 feed 列表（sources + overlay + wechat）。"""
     p = path or SOURCES_PATH
     base = (rsshub_url if rsshub_url is not None else load_settings().rsshub_url).rstrip("/")
     cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
-    rows = list(cfg.get("feeds") or [])
-    rows.extend(_load_yaml_feeds(WECHAT_PATH))
+    builtin = [dict(row) for row in (cfg.get("feeds") or [])]
+    overlay = load_overlay(overlay_path)
+    rows = apply_overlay(builtin, overlay)
+    disabled = {str(n) for n in overlay.get("disabled") or []}
+    for row in _load_yaml_feeds(wechat_path or WECHAT_PATH):
+        name = str(row.get("name") or "")
+        if name and name not in disabled:
+            rows.append(dict(row))
     return _expand_feed_rows(rows, rsshub_url=base)
 
 

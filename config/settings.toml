@@ -10,6 +10,10 @@ timeout_seconds = 20
 # Docker 网络内其它容器可用 http://rsshub:1200;本机 CLI 用 127.0.0.1。
 base_url = "http://127.0.0.1:1200"
 
+[wewe]
+# Lab 3.4 WeWe RSS。控制台添加公众号时走这个基址。
+base_url = "http://127.0.0.1:4000"
+
 [paths]
 db = "data/fishnet.db"
 render_dir = "render/sections"
