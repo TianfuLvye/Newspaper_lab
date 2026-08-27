@@ -1,9 +1,9 @@
 """头版「今日综述」。手册要求读 Top 20 写约 200 字;没 API 时用抽句兜底。"""
 from __future__ import annotations
 
-import os
 import re
 
+from core.llm import llm_api_key, llm_base_url, llm_flash_model
 from render.layout.model import Article
 
 LEDE_PROMPT = """你是这份个人报纸的夜班编辑。根据下面的标题和开头,写一段约 200 字的「今日综述」。
@@ -53,7 +53,7 @@ def extractive_lede(articles: list[Article], kind: str) -> str:
 
 
 def llm_lede(articles: list[Article], kind: str, *, timeout: float = 12.0) -> str | None:
-    key = os.environ.get("FISHNET_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    key = llm_api_key()
     if not key:
         return None
     pool = [
@@ -67,7 +67,7 @@ def llm_lede(articles: list[Article], kind: str, *, timeout: float = 12.0) -> st
     for a in pool:
         lines.append(f"- [{a.section}] {a.title}\n  {first_sentence(a.body, 90)}")
     payload = {
-        "model": os.environ.get("FISHNET_LLM_MODEL") or "gpt-4o-mini",
+        "model": llm_flash_model(),
         "temperature": 0.3,
         "messages": [
             {"role": "system", "content": LEDE_PROMPT.strip()},
@@ -80,11 +80,7 @@ def llm_lede(articles: list[Article], kind: str, *, timeout: float = 12.0) -> st
     try:
         import httpx
 
-        base = (
-            os.environ.get("FISHNET_LLM_BASE_URL")
-            or os.environ.get("OPENAI_BASE_URL")
-            or "https://api.openai.com/v1"
-        ).rstrip("/")
+        base = llm_base_url()
         with httpx.Client(timeout=timeout) as client:
             r = client.post(
                 f"{base}/chat/completions",

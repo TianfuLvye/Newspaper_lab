@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -12,6 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 from lxml import html as lhtml
 
+from core.llm import llm_api_key, llm_base_url, llm_visual_model
 from core.schema import Item
 from core.text import readable_body
 
@@ -216,7 +216,7 @@ def pick_images(
             return _apply_keep(pruned, chosen, max_keep=max_keep)
         except Exception:
             pass
-    elif os.environ.get("FISHNET_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY"):
+    elif llm_api_key():
         try:
             chosen = _llm_pick(title, body, pruned)
             return _apply_keep(pruned, chosen, max_keep=max_keep)
@@ -401,13 +401,9 @@ def _apply_keep(pruned: list[dict], chosen: dict, *, max_keep: int) -> list[dict
 def _llm_pick(title: str, body: str, pruned: list[dict]) -> dict:
     import httpx
 
-    key = os.environ.get("FISHNET_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
-    base = (
-        os.environ.get("FISHNET_LLM_BASE_URL")
-        or os.environ.get("OPENAI_BASE_URL")
-        or "https://api.openai.com/v1"
-    ).rstrip("/")
-    model = os.environ.get("FISHNET_LLM_MODEL") or "gpt-4o-mini"
+    key = llm_api_key()
+    base = llm_base_url()
+    model = llm_visual_model()
     lines = []
     for i, c in enumerate(pruned):
         lines.append(f"{i}. role={c.get('role')} alt={c.get('alt') or '-'} url={c['url'][:180]}")

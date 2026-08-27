@@ -109,4 +109,4 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 - Lab 4 直播抓取:本机扫码 MediaCrawler + 填写 `targeted.creator_id`(fixture 路径已验收)
 - `notify/*` —— 邮件 / Telegram 推送(Lab 9;`digest.pdf` / `digest.html` 已可当附件)
 - 知乎收藏夹 id 填进 `config/golden.yaml` 后 `golden --refresh`,用你的真收藏替换冷启动 seed
-- 配 `FISHNET_LLM_API_KEY` 后评委从启发式切到 LLM(每期仍 ≤150 次);头版综述也会走 LLM
+- 配 `FISHNET_LLM_API_KEY` 后评委从启发式切到 LLM(每期仍 ≤150 次,用 Flash 文本模型);头版综述也会走 Flash;配图挑选走 Visual

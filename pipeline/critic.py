@@ -13,9 +13,10 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from dataclasses import dataclass
+
+from core.llm import llm_api_key, llm_base_url, llm_flash_model
 
 CRITICAL_RUBRIC = """
 你是一位严格的内容评审。请对下面这篇文章在「激发批判性思考」维度上打分(0-10)。
@@ -121,11 +122,9 @@ class Critic:
     def __init__(self, *, prefer_llm: bool | None = None, timeout: float = 20.0):
         self.timeout = timeout
         self.call_count = 0
-        key = os.environ.get("FISHNET_LLM_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        self.base = (os.environ.get("FISHNET_LLM_BASE_URL")
-                     or os.environ.get("OPENAI_BASE_URL")
-                     or "https://api.openai.com/v1").rstrip("/")
-        self.model = os.environ.get("FISHNET_LLM_MODEL") or "gpt-4o-mini"
+        key = llm_api_key()
+        self.base = llm_base_url()
+        self.model = llm_flash_model()
         self.api_key = key
         if prefer_llm is None:
             self.prefer_llm = bool(key)
