@@ -7,6 +7,7 @@ from pathlib import Path
 from render.layout.grid import MmRect
 from render.layout.images import wrap_obstacles
 from render.layout.measure import (
+    BYLINE_BAND_MM,
     TypeSpec,
     char_em,
     column_rule_spans,
@@ -45,7 +46,7 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
   .block {{ position: absolute; box-sizing: border-box; overflow: hidden; }}
   .story, .index, .placeholder {{ background: transparent; border: 0; }}
   .kicker {{ font-size: 6.6pt; letter-spacing: .12em; color: #444; position: absolute; }}
-  .title {{ font-weight: 700; line-height: 1.12; position: absolute; }}
+  .title {{ font-weight: 700; line-height: 1.12; position: absolute; overflow: hidden; }}
   .byline {{ color: #444; font-size: 6.6pt; position: absolute; }}
   .body {{
     font-size: 8.15pt; line-height: 1.30; position: absolute;
@@ -227,7 +228,11 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
             lead=ch.article.priority <= 0 and ch.article.section == "headline" and ch.part == 0,
         )
         if b.title_rect is not None:
-            tr = _rel(b.title_rect.inset(t=types.kicker_bar_mm), b.mm)
+            has_byline = ch.part == 0 and bool(ch.article.byline)
+            text_box = b.title_rect.inset(t=types.kicker_bar_mm)
+            if has_byline:
+                text_box = text_box.inset(b=BYLINE_BAND_MM)
+            tr = _rel(text_box, b.mm)
             bits.append(
                 f'<div class="title" style="left:{tr.x:.2f}mm;top:{tr.y:.2f}mm;'
                 f'width:{tr.w:.2f}mm;height:{tr.h:.2f}mm;font-size:{ts:.1f}pt">'
@@ -236,7 +241,7 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
         if ch.part == 0 and ch.article.byline and b.title_rect is not None:
             br = _rel(b.title_rect, b.mm)
             bits.append(
-                f'<div class="byline" style="left:{br.x:.2f}mm;top:{br.y + br.h - 4:.2f}mm;'
+                f'<div class="byline" style="left:{br.x:.2f}mm;top:{br.y + br.h - BYLINE_BAND_MM:.2f}mm;'
                 f'width:{br.w:.2f}mm">{html.escape(ch.article.byline)}</div>'
             )
         for ib in b.image_boxes:

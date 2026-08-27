@@ -7,7 +7,7 @@
 
 1. **黄金集 ≥50 篇并向量化**: `pipeline/golden_seed.py` 冷启动 50 篇风格原型(AI / 机器人 / 产业财经 / 社会观察 / 学习方法)。`uv run main.py golden` 拟合成多簇 `TasteProfile`。
 2. **两阶段召回**: 全体候选用 $S_{sim}+S_{len}+S_{hot}+S_{kw}$ 粗排,只对 Top 150 跑评委(`pipeline/critic.py`)。没配 LLM Key 时走同一份 rubric 的启发式,出报不中断。
-3. **打分接入出报**: `produce_edition` 写出 `01_headline.md` / `03_deepread.md` / `07_critical.md`,热榜和订阅不再按「先到先得」占满版面。
+3. **打分接入出报**: `produce_edition` 写出 `01_headline.md` / `03_deepread.md` / `07_critical.md`,热榜和订阅不再按「先到先得」占满版面。当天知乎日报由 `ensure_todays_zhihu_daily` 钉进深度阅读,不靠把 feed `weight` 调很大(那个数字只影响订阅版轮询)。
 4. **事件聚类**: SimHash 折叠转载,改写稿走 embedding 层次聚类,每簇只出最高分主稿,其余当「相关报道」。
 5. **反馈闭环**: 每条有编号 Fnn,`uv run main.py feedback --edition … --n 1 --label 1` 写进 `feedback` 表。
 6. **A/B 自评**: `uv run main.py ab --kind am` 写出纯热度 vs 打分对照,不标记 `used_in`(也不该去动正在跑的耐力测试库)。

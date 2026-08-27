@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 from render.layout.engine import density_mode, layout_edition
 from render.layout.grid import CellRect, MmRect, PageGeom
 from render.layout.images import classify, plan_image_slots, wrap_obstacles
-from render.layout.measure import chars_that_fit, column_count, punch_columns, wrap_text, wrap_title, split_body
+from render.layout.measure import chars_that_fit, column_count, punch_columns, wrap_text, wrap_title, title_wrap_line_count, split_body
 from render.layout.model import Article, ImageSpec
 from render.layout.pack import MaxRects, no_overlaps
 from render.lede import extractive_lede
@@ -97,6 +97,12 @@ check(
     "标题折行比正文 wrap 更保守",
     len(cia_title_lines) > len(cia_body_lines),
     f"title={len(cia_title_lines)} body={len(cia_body_lines)}",
+)
+commodity = "金银只是开场，所有大宗商品都涨起来了"
+check(
+    "末行快满的窄栏标题多留一行,避免末字叠到刊出时间",
+    title_wrap_line_count(commodity, 41.53, 17.8) >= 4,
+    str(wrap_title(commodity, 41.53, 17.8)),
 )
 n = chars_that_fit("甲" * 400, 60, 20, 9, 1.35, columns=False)
 check("高度限制截断", 20 < n < 400, str(n))

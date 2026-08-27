@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 
 from core.schema import Kind
-from core.text import display_title, format_dateline, item_published_at, readable_body
+from core.text import display_title, format_dateline, item_published_at, newspaper_body
 
 CST = timezone(timedelta(hours=8))
 
@@ -70,7 +70,7 @@ def render_ranked_section(
         if when:
             lines.append(f"> {when}")
         lines.append("")
-        body = readable_body(it)
+        body = newspaper_body(it)
         if it.kind == Kind.VIDEO:
             lines.append("_视频暂不转写。_")
             lines.append("")

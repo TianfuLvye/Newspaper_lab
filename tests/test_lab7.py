@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -111,6 +111,61 @@ vid = Item(Source.BILIBILI, Kind.VIDEO, "塔菲视频", "https://bilibili.com/v/
 act = Item(Source.ZHIHU, Kind.ARTICLE, "Thoughts Memo赞同了回答: x", "https://zhihu.com/a/1", content="正经回答" * 40, collector="rss_thoughts_memo_动态")
 check("视频不进打分", is_rank_candidate(vid) is False)
 check("赞同动态不进打分", is_rank_candidate(act) is False)
+
+print("\n[Lab 7] 当天知乎日报钉进深度,不靠把 weight 调很大")
+import numpy as np
+from pipeline.rank import DEEPREAD_N, RankedItem, ensure_todays_zhihu_daily
+from pipeline.score import ScoreBreakdown
+
+_cst = timezone(timedelta(hours=8))
+pin_now = datetime(2026, 8, 27, 14, 0, tzinfo=_cst)
+daily_pin = Item(
+    Source.ZHIHU,
+    Kind.ARTICLE,
+    "泥石流；国自然；巫师3…",
+    "https://zhuanlan.zhihu.com/p/daily-pin",
+    content="嘿，这里是知乎早报！" * 20,
+    collector="rss_知乎日报_早报",
+    published_at=pin_now,
+)
+others = [
+    Item(
+        Source.NEWS,
+        Kind.ARTICLE,
+        f"占位稿{i}",
+        f"https://example.com/slot-{i}",
+        content="长正文足够过门槛。" * 30,
+        fetched_at=pin_now,
+    )
+    for i in range(8)
+]
+_bd = ScoreBreakdown(0.4, {"sim": 0.4})
+deep = [RankedItem(it, _bd, np.zeros(4)) for it in others]
+used_pin = {it.content_hash for it in others}
+_h, _d, _c = ensure_todays_zhihu_daily(
+    [daily_pin, *others], [], deep, [], [], used_pin, pin_now
+)
+check("日报钉在深度第一", _d[0].item.content_hash == daily_pin.content_hash)
+check("深度仍不超过配额", len(_d) == DEEPREAD_N)
+check(
+    "挤掉最后一篇占位",
+    others[-1].content_hash not in {x.item.content_hash for x in _d},
+)
+_h2, _d2, _c2 = ensure_todays_zhihu_daily(
+    [daily_pin], [_d[0]], [], [], [], set(), pin_now
+)
+check("已上版则不重复钉", _h2[0].item.content_hash == daily_pin.content_hash and not _d2)
+old_daily = Item(
+    Source.ZHIHU,
+    Kind.ARTICLE,
+    "昨天的早报",
+    "https://zhuanlan.zhihu.com/p/daily-old",
+    content="嘿，这里是知乎早报！" * 20,
+    collector="rss_知乎日报_早报",
+    published_at=pin_now - timedelta(days=1),
+)
+_h3, _d3, _c3 = ensure_todays_zhihu_daily([old_daily], [], [], [], [], set(), pin_now)
+check("昨天的日报不钉到今天", not _d3)
 
 
 print("\n[Lab 7] 事件聚类:改写稿被折叠(SimHash 抓不到,L3 要抓到)")

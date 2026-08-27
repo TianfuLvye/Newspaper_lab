@@ -281,6 +281,7 @@ def test_text_cleanup_and_filters():
         expand_zhihu_daily_title,
         html_to_text,
         is_zhihu_skip_title,
+        newspaper_body,
         readable_body,
         strip_zhihu_footer,
     )
@@ -321,7 +322,10 @@ def test_text_cleanup_and_filters():
         content=daily_body,
         collector="rss_知乎日报_早报",
     )
-    check("display_title prints daily full", "郭兰英" in display_title(daily), display_title(daily))
+    check("display_title is short masthead", display_title(daily) == "今日知乎日报", display_title(daily))
+    paper = newspaper_body(daily)
+    check("newspaper_body leads with bold catalog", paper.startswith("**") and "郭兰英" in paper, paper[:80])
+    check("readable_body stays the article", not readable_body(daily).startswith("**"))
 
     xml = """<?xml version="1.0" encoding="utf-8"?>
     <rss version="2.0">

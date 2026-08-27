@@ -12,6 +12,7 @@ from render.layout.images import (
     wrap_obstacles,
 )
 from render.layout.measure import (
+    BYLINE_BAND_MM,
     TypeSpec,
     cells_for_height,
     chars_that_fit,
@@ -163,7 +164,7 @@ def estimate_area_cells(chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: in
         ts = title_size(art.section, 0, types, lead=art.priority <= 0 and art.section == "headline")
         title_h = estimate_title_height_mm(art.title, inner_w, ts, types)
         if art.byline:
-            title_h += 4.2
+            title_h += BYLINE_BAND_MM
     else:
         # 跳页题同样占位:续文面积要把小号原题算进去,不然尾巴按「无题」估小,
         # 排出来就是题贴文、文贴边的火柴梗。
@@ -565,7 +566,7 @@ def _materialize(
         )
         th = estimate_title_height_mm(art.title or art.kicker or " ", inner.w, ts, types)
         if art.byline:
-            th += 4.0
+            th += BYLINE_BAND_MM
     else:
         # 续文也印原题(小号跳页题):题面才是指路牌,「上接第N版」由 kicker 携带
         ts = title_size(art.section, chunk.part, types)

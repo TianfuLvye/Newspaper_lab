@@ -11,6 +11,7 @@ from reportlab.pdfgen import canvas
 from render.fonts import register_pdf_fonts
 from render.layout.grid import MM_PER_PT, MmRect, mm_to_pt
 from render.layout.measure import (
+    BYLINE_BAND_MM,
     TypeSpec,
     char_em,
     column_count,
@@ -310,10 +311,13 @@ def _draw_article(
             types,
             lead=ch.article.priority <= 0 and ch.article.section == "headline" and ch.part == 0,
         )
+        title_box = block.title_rect.inset(t=types.kicker_bar_mm)
+        if ch.part == 0 and ch.article.byline:
+            title_box = title_box.inset(b=BYLINE_BAND_MM)
         _draw_wrapped(
             c,
             title,
-            block.title_rect.inset(t=types.kicker_bar_mm),
+            title_box,
             title_font,
             ts,
             1.12,
@@ -326,7 +330,11 @@ def _draw_article(
             c.setFillColor(MUTED)
             c.setFont(body_font, 6.6)
             tr = block.title_rect
-            c.drawString(mm_to_pt(tr.x), _y(page_h_pt, tr.bottom - 0.2), ch.article.byline[:80])
+            c.drawString(
+                mm_to_pt(tr.x),
+                _y(page_h_pt, tr.bottom - BYLINE_BAND_MM + 2.4),
+                ch.article.byline[:80],
+            )
 
     for ib in block.image_boxes:
         ix, iy = mm_to_pt(ib.rect.x), _y(page_h_pt, ib.rect.bottom)

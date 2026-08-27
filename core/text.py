@@ -73,6 +73,17 @@ def is_zhihu_activity_item(it) -> bool:
     return collector.endswith("_动态")
 
 
+def is_zhihu_daily(it) -> bool:
+    """知乎日报早报(机构号 RSS),不是个人答主。"""
+    collector = getattr(it, "collector", "") or ""
+    if "知乎日报" in collector:
+        return True
+    source = getattr(it, "source", None)
+    src = source.value if hasattr(source, "value") else source
+    title = html_to_text(getattr(it, "title", "") or "", single_line=True)
+    return src == "zhihu" and "早报" in title
+
+
 def expand_zhihu_daily_title(title: str, body: str) -> str:
     """RSSHub 会把早报标题截成「…」。用正文里的热点条目拼回完整目录。"""
     cut = (body or "").find("小李精选")
@@ -109,14 +120,23 @@ def readable_body(it) -> str:
 
 
 def display_title(it) -> str:
-    """展示用标题:剥 HTML,日报截断则用正文条目补全。"""
-    title = html_to_text(getattr(it, "title", "") or "", single_line=True)
-    collector = getattr(it, "collector", "") or ""
-    source = getattr(it, "source", None)
-    src = source.value if hasattr(source, "value") else source
-    if "知乎日报" in collector or (src == "zhihu" and "早报" in title):
-        title = expand_zhihu_daily_title(title, readable_body(it))
-    return title
+    """展示用标题。知乎日报固定「今日知乎日报」,目录进 newspaper_body。"""
+    if is_zhihu_daily(it):
+        return "今日知乎日报"
+    return html_to_text(getattr(it, "title", "") or "", single_line=True)
+
+
+def newspaper_body(it) -> str:
+    """出报正文。日报把原来的长目录加粗放在第一段,不改打分用的 readable_body。"""
+    body = readable_body(it)
+    if not is_zhihu_daily(it):
+        return body
+    raw = html_to_text(getattr(it, "title", "") or "", single_line=True)
+    catalog = expand_zhihu_daily_title(raw, body)
+    if not catalog:
+        return body
+    lead = f"**{catalog}**"
+    return f"{lead}\n\n{body}" if body else lead
 
 
 def item_published_at(it):

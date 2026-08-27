@@ -38,6 +38,8 @@ feeds:
     url: "{rsshub}/zhihu/posts/org/zhi-hu-ri-bao-51-41"
     source: zhihu
     kind: article
+    # 订阅版轮询权重。当天早报是否见报由 rank.ensure_todays_zhihu_daily 钉进深度,
+    # 把数字调很大也不能保证上个性化版。
     weight: 1.6
     # 只要早报。标题用全角「｜早报 YYYYMMDD」;过长标题会被 RSSHub 截断,
     # 此时用正文开头「嘿，这里是知乎早报」兜底。瞎扯等帖不含「早报」。

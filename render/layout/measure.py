@@ -109,6 +109,22 @@ def wrap_title(text: str, width_mm: float, font_size_pt: float) -> list[str]:
     return lines
 
 
+TITLE_SLACK_MM = 2.2
+BYLINE_BAND_MM = 4.0
+
+
+def title_wrap_line_count(title: str, width_mm: float, size_pt: float) -> int:
+    """标题占几行。末行快满时加一行:黑体加粗比 1em 略宽,浏览器会再挤出一字。"""
+    lines = wrap_title(title, width_mm, size_pt)
+    n = len(lines)
+    if n and width_mm > 1 and size_pt > 0:
+        max_em = (width_mm * 0.96) / (size_pt * MM_PER_PT)
+        last_em = sum(_title_char_em(ch) for ch in lines[-1])
+        if last_em > max_em * 0.78:
+            n += 1
+    return n
+
+
 def line_height_mm(font_size_pt: float, line_ratio: float) -> float:
     return font_size_pt * MM_PER_PT * line_ratio
 
@@ -364,9 +380,9 @@ def title_size(section: str, part: int, types: TypeSpec, *, lead: bool = False) 
 
 
 def estimate_title_height_mm(title: str, width_mm: float, size_pt: float, types: TypeSpec) -> float:
-    lines = wrap_title(title, width_mm, size_pt)
-    h = len(lines) * line_height_mm(size_pt, 1.12)
-    return h + types.kicker_bar_mm + 2.2
+    n = title_wrap_line_count(title, width_mm, size_pt)
+    h = n * line_height_mm(size_pt, 1.12)
+    return h + types.kicker_bar_mm + TITLE_SLACK_MM
 
 
 def cells_for_height(height_mm: float, geom: PageGeom) -> int:

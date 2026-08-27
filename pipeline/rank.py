@@ -15,7 +15,14 @@ import numpy as np
 
 from core.schema import Item, Kind, Source
 from core.store import Store
-from core.text import display_title, is_zhihu_activity_item, item_published_at, readable_body
+from core.text import (
+    CST,
+    display_title,
+    is_zhihu_activity_item,
+    is_zhihu_daily,
+    item_published_at,
+    readable_body,
+)
 from pipeline.critic import Critic, CriticResult
 from pipeline.dedup import fold_events
 from pipeline.golden import FittedTaste, get_or_fit_taste
@@ -243,6 +250,9 @@ def rank_items(
         key=lambda ri: -(ri.critic.score01 if ri.critic else 0),
     )
     critical = _take(crit_pool, CRITICAL_N, used)
+    headline, deepread, critical = ensure_todays_zhihu_daily(
+        items, headline, deepread, critical, ranked, used, now
+    )
 
     return RankResult(
         ranked=ranked,
@@ -255,6 +265,60 @@ def rank_items(
         n_llm=critic.call_count,
         kind=kind,
     )
+
+
+def _todays_zhihu_daily(items: list[Item], now: datetime) -> Item | None:
+    """当天刊出的知乎日报早报。有多份时取最新一篇。"""
+    today = now.astimezone(CST).date()
+    found: list[Item] = []
+    for it in items:
+        if not is_zhihu_daily(it) or not has_readable_body(it):
+            continue
+        t = item_published_at(it)
+        if t is None:
+            continue
+        if t.tzinfo is None:
+            t = t.replace(tzinfo=timezone.utc)
+        if t.astimezone(CST).date() == today:
+            found.append(it)
+    if not found:
+        return None
+    return max(found, key=lambda it: item_published_at(it) or datetime.min.replace(tzinfo=timezone.utc))
+
+
+def _pin_breakdown() -> object:
+    from pipeline.score import ScoreBreakdown
+
+    return ScoreBreakdown(total=0.0, parts={"sim": 0, "len": 0, "llm": 0, "hot": 0, "kw": 0})
+
+
+def ensure_todays_zhihu_daily(
+    items: list[Item],
+    headline: list[RankedItem],
+    deepread: list[RankedItem],
+    critical: list[RankedItem],
+    ranked: list[RankedItem],
+    used: set[str],
+    now: datetime,
+) -> tuple[list[RankedItem], list[RankedItem], list[RankedItem]]:
+    """当天日报钉进深度阅读。订阅 weight 只影响轮询,不能保证上版。"""
+    pick = _todays_zhihu_daily(items, now)
+    if pick is None:
+        return headline, deepread, critical
+    hid = pick.content_hash
+    placed = headline + deepread + critical
+    if any(ri.item.content_hash == hid for ri in placed):
+        return headline, deepread, critical
+    ri = next((x for x in ranked if x.item.content_hash == hid), None)
+    if ri is None:
+        dim = int(ranked[0].vec.shape[0]) if ranked else 8
+        ri = RankedItem(item=pick, breakdown=_pin_breakdown(), vec=np.zeros(dim))
+    deepread = [ri] + [x for x in deepread if x.item.content_hash != hid]
+    while len(deepread) > DEEPREAD_N:
+        dropped = deepread.pop()
+        used.discard(dropped.item.content_hash)
+    used.add(hid)
+    return headline, deepread, critical
 
 
 def _take(pool: list[RankedItem], n: int, used: set[str]) -> list[RankedItem]:

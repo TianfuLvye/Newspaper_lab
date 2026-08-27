@@ -14,6 +14,7 @@ from core.text import (
     format_dateline,
     is_zhihu_activity_item,
     item_published_at,
+    newspaper_body,
     readable_body,
 )
 
@@ -144,7 +145,7 @@ def render_item_md(
     hashes = "#" * heading_level
     kind = it.kind.value if isinstance(it.kind, Kind) else str(it.kind)
     title = display_title(it)
-    body = item_body(it)
+    body = newspaper_body(it)
     when = _fmt_when(it)
     who = it.author or ""
     head = " · ".join(x for x in (when, it.source.value, who) if x)
