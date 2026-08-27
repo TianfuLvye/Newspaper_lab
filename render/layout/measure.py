@@ -91,6 +91,96 @@ def column_rects(rect: MmRect, n: int | None = None) -> list[MmRect]:
     ]
 
 
+PUNCH_GUTTER_MM = 1.6
+
+
+def punch_columns(
+    body: MmRect,
+    obstacles: list[MmRect],
+    n_cols: int | None = None,
+    *,
+    gutter_mm: float = PUNCH_GUTTER_MM,
+) -> list[MmRect]:
+    """每栏减去与图井相交的顶段,留下一块矩形给正文。
+
+    图顶对齐且咬在栏缝上时,被挡的栏只是起点更低、高度更短,不会变成 L 形。
+    """
+    cols = column_rects(body, n_cols)
+    if not obstacles:
+        return cols
+    punched: list[MmRect] = []
+    for col in cols:
+        y0 = col.y
+        for obs in obstacles:
+            if obs.w <= 0 or obs.h <= 0:
+                continue
+            ox1 = obs.x - gutter_mm
+            ox2 = obs.right + gutter_mm
+            if ox2 <= col.x or ox1 >= col.right:
+                continue
+            y0 = max(y0, obs.bottom + gutter_mm)
+        h = max(0.0, col.bottom - y0)
+        punched.append(MmRect(col.x, y0, col.w, h))
+    return punched
+
+
+def column_rule_spans(
+    body: MmRect,
+    punched: list[MmRect],
+) -> list[tuple[float, float, float]]:
+    """栏间竖线:(x, y1, y2)。两侧都被图挡住时,线只画在图下方。"""
+    n = len(punched)
+    if n <= 1:
+        return []
+    rules: list[tuple[float, float, float]] = []
+    for i in range(1, n):
+        a, b = punched[i - 1], punched[i]
+        x = (a.right + b.x) / 2
+        left_from_top = a.y <= body.y + 1.2
+        right_from_top = b.y <= body.y + 1.2
+        if left_from_top and right_from_top:
+            y1 = body.y
+        elif not left_from_top and not right_from_top:
+            y1 = max(a.y, b.y)
+        else:
+            y1 = body.y
+        y2 = body.bottom
+        if y2 - y1 > 3:
+            rules.append((x, y1 + 1.0, y2 - 1.0))
+    return rules
+
+
+def split_text_by_columns(
+    text: str,
+    col_rects: list[MmRect],
+    font_size_pt: float,
+    line_ratio: float,
+) -> list[str]:
+    """按各栏行预算切开正文。栏与栏之间不按句号吸附,分页切口才吸附。"""
+    remaining = text or ""
+    parts: list[str] = []
+    for i, col in enumerate(col_rects):
+        if not remaining:
+            parts.append("")
+            continue
+        if i == len(col_rects) - 1:
+            parts.append(remaining)
+            remaining = ""
+            continue
+        n = chars_that_fit(
+            remaining,
+            col.w,
+            col.h,
+            font_size_pt,
+            line_ratio,
+            columns=False,
+            snap=False,
+        )
+        parts.append(remaining[:n])
+        remaining = remaining[n:]
+    return parts
+
+
 def chars_that_fit(
     text: str,
     width_mm: float,
@@ -99,18 +189,31 @@ def chars_that_fit(
     line_ratio: float = 1.36,
     *,
     columns: bool = True,
+    col_rects: list[MmRect] | None = None,
+    snap: bool = True,
 ) -> int:
     """在给定矩形里能放下 `text` 的前多少个字符(尽量在段落/句号处切开)。
 
     `columns=True` 时按竖栏计量:同样高度能装下更多字,这才是报纸栏而不是博客通栏。
+    `col_rects` 给出各栏实高时,总行数按栏加总(图旁那几栏更高)。
     """
-    if height_mm <= 1.0 or width_mm <= 1.0 or not text:
+    if not text:
         return 0
-    n_cols = column_count(width_mm) if columns else 1
-    cols = column_rects(MmRect(0, 0, width_mm, height_mm), n_cols)
-    col_w = cols[0].w
-    lines_per = max(0, int(height_mm / line_height_mm(font_size_pt, line_ratio)))
-    budget_lines = lines_per * max(1, len(cols))
+    if col_rects is not None:
+        usable = [c for c in col_rects if c.w > 1 and c.h > 1]
+        if not usable:
+            return 0
+        col_w = usable[0].w
+        lh = line_height_mm(font_size_pt, line_ratio)
+        budget_lines = sum(max(0, int(c.h / lh)) for c in usable)
+    else:
+        if height_mm <= 1.0 or width_mm <= 1.0:
+            return 0
+        n_cols = column_count(width_mm) if columns else 1
+        cols = column_rects(MmRect(0, 0, width_mm, height_mm), n_cols)
+        col_w = cols[0].w
+        lines_per = max(0, int(height_mm / line_height_mm(font_size_pt, line_ratio)))
+        budget_lines = lines_per * max(1, len(cols))
     if budget_lines <= 0:
         return 0
     lo, hi = 0, len(text)
@@ -121,7 +224,7 @@ def chars_that_fit(
             lo = mid
         else:
             hi = mid - 1
-    return _snap_break(text, lo)
+    return _snap_break(text, lo) if snap else lo
 
 
 def _snap_break(text: str, idx: int) -> int:

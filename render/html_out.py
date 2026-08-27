@@ -5,7 +5,15 @@ import html
 from pathlib import Path
 
 from render.layout.grid import MmRect
-from render.layout.measure import TypeSpec, char_em, title_size
+from render.layout.images import wrap_obstacles
+from render.layout.measure import (
+    TypeSpec,
+    char_em,
+    column_rule_spans,
+    punch_columns,
+    split_text_by_columns,
+    title_size,
+)
 from render.layout.model import LayoutResult, PageLayout, PlacedBlock
 from render.markup import MdTable, has_md_table, inline_md_to_html, split_md_segments
 
@@ -45,7 +53,9 @@ def write_html(layout: LayoutResult, path: Path) -> Path:
     column-gap: 2.2mm; column-rule: 0.15mm solid #222;
     column-fill: auto; -webkit-column-fill: auto;
   }}
+  .body.col {{ column-count: 1; column-rule: none; column-gap: 0; }}
   .body p {{ margin: 0 0 0.55em; text-align: justify; }}
+  .body.col p {{ margin: 0 0 0.35em; }}
   .body p:last-child {{ margin-bottom: 0; }}
   .mdtbl {{
     width: 100%; border-collapse: collapse; font-size: 6.3pt; line-height: 1.22;
@@ -241,15 +251,36 @@ def _block_html(layout: LayoutResult, b: PlacedBlock, types: TypeSpec) -> str:
             )
         if ch.body and b.text_rect is not None:
             n = max(1, b.n_text_cols)
-            tr = _rel(b.text_rect, b.mm)
-            # 带表格的正文改用 balance:表格跨栏通排,前文先在栏间均分,
-            # 免得第一栏塞到底、第二栏空着迎接表格。
-            fill = "column-fill:balance;" if has_md_table(ch.body) else ""
-            bits.append(
-                f'<div class="body" style="left:{tr.x:.2f}mm;top:{tr.y:.2f}mm;'
-                f'width:{tr.w:.2f}mm;height:{tr.h:.2f}mm;column-count:{n};{fill}'
-                f'font-size:{types.body_pt:.2f}pt">{_body_html(ch.body)}</div>'
-            )
+            if has_md_table(ch.body):
+                tr = _rel(b.text_rect, b.mm)
+                bits.append(
+                    f'<div class="body" style="left:{tr.x:.2f}mm;top:{tr.y:.2f}mm;'
+                    f'width:{tr.w:.2f}mm;height:{tr.h:.2f}mm;column-count:{n};'
+                    f'column-fill:balance;font-size:{types.body_pt:.2f}pt">'
+                    f"{_body_html(ch.body)}</div>"
+                )
+            else:
+                obstacles = wrap_obstacles(b.well, b.image_boxes)
+                punched = punch_columns(b.text_rect, obstacles, n)
+                pieces = split_text_by_columns(
+                    ch.body, punched, types.body_pt, types.line_ratio
+                )
+                for col, piece in zip(punched, pieces):
+                    if col.h < 2 or not piece.strip():
+                        continue
+                    rel = _rel(col, b.mm)
+                    bits.append(
+                        f'<div class="body col" style="left:{rel.x:.2f}mm;top:{rel.y:.2f}mm;'
+                        f'width:{rel.w:.2f}mm;height:{rel.h:.2f}mm;'
+                        f'font-size:{types.body_pt:.2f}pt">{_body_html(piece)}</div>'
+                    )
+                for x, y1, y2 in column_rule_spans(b.text_rect, punched):
+                    rel_x = x - b.mm.x
+                    rel_y = y1 - b.mm.y
+                    bits.append(
+                        f'<div class="rule-v" style="left:{rel_x:.2f}mm;top:{rel_y:.2f}mm;'
+                        f'width:0.18mm;height:{y2 - y1:.2f}mm"></div>'
+                    )
         if b.jump_to:
             bits.append(f'<div class="jump">下转第 {b.jump_to} 版</div>')
     return _abs_div(b.kind, b.mm, "".join(bits))

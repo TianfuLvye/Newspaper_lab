@@ -1,27 +1,25 @@
-"""一篇稿带 1–3 张图时,如何从文章矩形里切出「图井」,剩下一块矩形给正文。
+"""一篇稿带 1–3 张图时,如何从文章矩形里切出「图井」。
 
-项目现在还没有稳定的配图管道,但排版不能等图来了再发明规则。本模块是
-预留算法:输入 ImageSpec(可以没有文件,只带宽高),输出图框 + 单一矩形
-正文区。正文区故意保持矩形——不绕排、不 L 形——这样分页和量字仍然简单。
+图井按正文栏格咬合宽度:横图居中占整数栏,竖图靠左占整数栏。正文区仍是
+整块内容矩形,量字时用 punch_columns 按栏抠掉图占的高度——邻栏从头顶排
+字,图所在栏从图下接字。稿件外框仍然是矩形,不做 Word 那种行内折行。
 
 决策摘要
 --------
-1. 图井是文章内容区(去掉标题带)内部的一块矩形,最多吃掉 45% 面积。
-2. 1 张:横图靠上,竖图靠左,方图看文章是横的还是竖的。
-3. 2 张:优先顶栏并排;两张都竖则改左栏叠放。
-4. 3 张:顶栏 2/3 英雄图 + 右侧两张小图(杂志常见);宽度不够则三连。
+1. 图井最多吃掉 45% 面积;井高等于图高 + 说明,顶对齐,不在井里垂直居中。
+2. 1 张:横图靠上咬栏,竖图靠左咬栏,方图看文章是横的还是竖的。
+3. 2 张:优先顶栏并排铺满;两张都竖则改左栏叠放。
+4. 3 张:顶栏 2/3 英雄图 + 右侧两张小图;宽度不够则三连。
 5. 缩放:先按 contain 放进格;短边小于 MIN_PHOTO_MM 再改 cover 裁切;
    还不够就把多出来的图丢给续页(overflow_images)。
-6. 续页默认不再重复已用过的图,除非第一截连图井都放不下。
-
-以后真有图文件时,只要把 path 填进 ImageSpec.src,PDF/HTML 渲染器会读它;
-算法本身不依赖磁盘。
+6. 图铺满全部栏宽时,所有栏都从图下开始,退化为原来的上下型。
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 from render.layout.grid import MmRect
+from render.layout.measure import column_rects
 from render.layout.model import ImageBox, ImageSpec
 
 MIN_PHOTO_MM = 28.0
@@ -29,6 +27,7 @@ MAX_WELL_FRACTION = 0.45
 CAPTION_MM = 4.0
 GUTTER_MM = 2.0
 MIN_TEXT_MM = 22.0  # 图再抢也不能让正文只剩一行半
+LETTERBOX_SKIP = 0.82  # 井比图宽太多就改占更少栏,避免图1那种两侧空井
 
 
 def classify(img: ImageSpec) -> str:
@@ -52,6 +51,17 @@ class ImagePlan:
     note: str = ""
 
 
+def wrap_obstacles(well: MmRect | None, boxes: list[ImageBox]) -> list[MmRect]:
+    """绕排障碍:优先用咬过栏的图井,否则用图框加说明高。"""
+    if well is not None and well.w > 1 and well.h > 1:
+        return [well]
+    out: list[MmRect] = []
+    for ib in boxes:
+        r = ib.rect
+        out.append(MmRect(r.x, r.y, r.w, r.h + CAPTION_MM))
+    return out
+
+
 def plan_image_slots(
     content: MmRect,
     images: list[ImageSpec],
@@ -59,7 +69,10 @@ def plan_image_slots(
     min_photo_mm: float = MIN_PHOTO_MM,
     max_well_fraction: float = MAX_WELL_FRACTION,
 ) -> ImagePlan:
-    """在 content 内切图井。images 超过 3 张时只排前三,其余进 overflow。"""
+    """在 content 内切图井。images 超过 3 张时只排前三,其余进 overflow。
+
+    `text_rect` 永远是整块 content:字从哪一栏、哪一高度起排,由 punch_columns 决定。
+    """
     if content.w <= 1 or content.h <= 1:
         return ImagePlan("none", text_rect=content, overflow_images=list(images),
                          note="content too small")
@@ -70,8 +83,8 @@ def plan_image_slots(
     if n == 0:
         return ImagePlan("none", text_rect=content, overflow_images=extra)
 
-    well, text, variant = _choose_well(content, pending)
-    if well is None or text is None:
+    well, variant = _choose_well(content, pending)
+    if well is None:
         return ImagePlan(
             "overflow-all",
             text_rect=content,
@@ -80,20 +93,18 @@ def plan_image_slots(
         )
 
     boxes, leftover = _fill_well(well, pending, variant, min_photo_mm=min_photo_mm)
-    # 面积约束:图井不得超 max_well_fraction。超了就按比例压矮/压窄。
     well_area = well.w * well.h
     room = content.w * content.h
     if room > 0 and well_area > max_well_fraction * room + 1e-6:
-        well, text, boxes = _shrink_well(
+        well, boxes = _shrink_well(
             content, well, variant, pending, min_photo_mm, max_well_fraction
         )
-        leftover = leftover  # 缩井可能导致更多 overflow,下面重填
         boxes, leftover = _fill_well(well, pending, variant, min_photo_mm=min_photo_mm)
 
     return ImagePlan(
         variant=variant,
         image_boxes=boxes,
-        text_rect=text,
+        text_rect=content,
         overflow_images=leftover + extra,
         well=well,
         note=f"n={n} variant={variant}",
@@ -101,15 +112,18 @@ def plan_image_slots(
 
 
 def estimate_well_height_mm(images: list[ImageSpec], width_mm: float) -> float:
-    """装箱前的粗估:假定文章大约 3 栏宽,图井高度。"""
+    """装箱前的粗估:横图按咬栏后的高度,竖图走左栏不占高度。"""
     n = min(len(images), 3)
     if n == 0 or width_mm <= 0:
         return 0.0
     kinds = [classify(img) for img in images[:n]]
     if n == 1 and kinds[0] == "port":
-        return 0.0  # 竖图走左栏,主要吃宽度
+        return 0.0
     if n == 1:
-        return min(width_mm / max(images[0].aspect, 0.4), 52.0) + CAPTION_MM
+        aspect = max(images[0].aspect, 0.4)
+        # 宽稿通常咬 2–3 栏,约 0.6 倍通栏宽,图比通栏 contain 更高一点。
+        span_w = min(width_mm, max(width_mm * 0.62, 52.0 * aspect))
+        return min(span_w / aspect, 58.0) + CAPTION_MM
     if n == 2 and all(k == "port" for k in kinds):
         return 0.0
     if n == 3:
@@ -129,55 +143,131 @@ def estimate_well_width_mm(images: list[ImageSpec], height_mm: float) -> float:
     return 0.0
 
 
-def _choose_well(content: MmRect, images: list[ImageSpec]) -> tuple[MmRect | None, MmRect | None, str]:
+def _choose_well(content: MmRect, images: list[ImageSpec]) -> tuple[MmRect | None, str]:
     n = len(images)
     kinds = [classify(img) for img in images]
-    # 正文至少留下 MIN_TEXT_MM 的一条边
     if n == 1:
         k = kinds[0]
         if k == "land" or (k == "sq" and content.w <= content.h * 1.15):
-            h = min(content.h * 0.40, content.w / max(images[0].aspect, 0.3) + CAPTION_MM)
-            h = max(min_photo_cap(h), min(h, content.h - MIN_TEXT_MM))
-            if h < MIN_PHOTO_MM or content.h - h < MIN_TEXT_MM:
-                return None, None, "fail"
-            well, text = content.split_top(h)
-            return well, text, "top-1"
-        w = min(content.w * 0.42, content.h * images[0].aspect + 1.0)
-        w = max(MIN_PHOTO_MM, min(w, content.w - MIN_TEXT_MM))
-        if content.w - w < MIN_TEXT_MM:
-            return None, None, "fail"
-        well, text = content.split_left(w)
-        return well, text, "left-1"
+            well = _top_well_for_aspect(content, images[0].aspect, h_frac=0.40)
+            return well, "top-1"
+        well = _left_well_for_aspect(content, images[0].aspect)
+        return well, "left-1"
 
     if n == 2:
         if all(k == "port" for k in kinds) and content.h >= content.w:
-            w = min(content.w * 0.40, 46.0)
-            if content.w - w < MIN_TEXT_MM:
-                return None, None, "fail"
-            well, text = content.split_left(w)
-            return well, text, "left-stack-2"
+            well = _left_stack_well(content)
+            return well, "left-stack-2"
         h = min(content.h * 0.38, 50.0)
-        if content.h - h < MIN_TEXT_MM:
-            return None, None, "fail"
-        well, text = content.split_top(h)
-        return well, text, "top-2"
+        well = _top_strip(content, h)
+        return well, "top-2"
 
-    # n == 3
     if content.w >= 90:
         h = min(content.h * 0.42, 58.0)
-        if content.h - h < MIN_TEXT_MM:
-            return None, None, "fail"
-        well, text = content.split_top(h)
-        return well, text, "hero-plus-2"
+        well = _top_strip(content, h)
+        return well, "hero-plus-2"
     h = min(content.h * 0.32, 42.0)
-    if content.h - h < MIN_TEXT_MM:
-        return None, None, "fail"
-    well, text = content.split_top(h)
-    return well, text, "top-3"
+    well = _top_strip(content, h)
+    return well, "top-3"
 
 
 def min_photo_cap(h: float) -> float:
     return max(h, MIN_PHOTO_MM + CAPTION_MM)
+
+
+def _top_strip(content: MmRect, height: float) -> MmRect | None:
+    """铺满全部栏宽的顶栏,两张并排 / 英雄图走这条,视觉上仍是上下型。"""
+    h = min(height, content.h - MIN_TEXT_MM)
+    if h < MIN_PHOTO_MM or content.h - h < MIN_TEXT_MM:
+        return None
+    return MmRect(content.x, content.y, content.w, h)
+
+
+def _top_well_for_aspect(content: MmRect, aspect: float, *, h_frac: float) -> MmRect | None:
+    """按宽高比把顶图咬到整数栏,居中放置。"""
+    cols = column_rects(content)
+    n = len(cols)
+    h_max = min(content.h * h_frac, content.h - MIN_TEXT_MM)
+    if h_max < MIN_PHOTO_MM or n < 1:
+        return None
+    room = content.w * content.h
+    best: MmRect | None = None
+    best_unused = 1e9
+    aspect = max(aspect, 0.15)
+    for span in range(1, n + 1):
+        start = (n - span) // 2
+        w = cols[start + span - 1].right - cols[start].x
+        h = w / aspect + CAPTION_MM
+        if h > h_max + 0.4:
+            h = h_max
+            nat_w = max(h - CAPTION_MM, 1.0) * aspect
+            if span > 1 and nat_w < w * LETTERBOX_SKIP:
+                continue
+        if h < MIN_PHOTO_MM:
+            continue
+        if content.h - h < MIN_TEXT_MM:
+            continue
+        if room > 0 and w * h > MAX_WELL_FRACTION * room + 1e-6:
+            h = MAX_WELL_FRACTION * room / w
+            if h < MIN_PHOTO_MM or content.h - h < MIN_TEXT_MM:
+                continue
+            nat_w = max(h - CAPTION_MM, 1.0) * aspect
+            if span > 1 and nat_w < w * LETTERBOX_SKIP:
+                continue
+        unused = max(0.0, w - max(h - CAPTION_MM, 1.0) * aspect)
+        narrower_tie = best is not None and abs(unused - best_unused) <= 0.3 and w < best.w
+        if unused < best_unused - 0.3 or narrower_tie:
+            best_unused = unused
+            best = MmRect(cols[start].x, content.y, w, h)
+    return best
+
+
+def _left_well_for_aspect(content: MmRect, aspect: float) -> MmRect | None:
+    """竖图靠左咬 1–2 栏,井高随宽高比,该栏图下还可以走字。"""
+    cols = column_rects(content)
+    n = len(cols)
+    if n < 1:
+        return None
+    max_span = max(1, n - 1) if n > 1 else 1
+    want_w = min(content.w * 0.42, content.h * max(aspect, 0.15) + 1.0)
+    span = 1
+    if n > 1:
+        pitch = cols[1].x - cols[0].x
+        if pitch > 1:
+            span = max(1, min(max_span, int(round(want_w / pitch))))
+    w = cols[span - 1].right - cols[0].x
+    h = min(content.h, w / max(aspect, 0.15) + CAPTION_MM)
+    if span == n:
+        h = min(h, content.h - MIN_TEXT_MM)
+    if h < MIN_PHOTO_MM:
+        return None
+    room = content.w * content.h
+    if room > 0 and w * h > MAX_WELL_FRACTION * room + 1e-6:
+        h = MAX_WELL_FRACTION * room / w
+        if h < MIN_PHOTO_MM:
+            return None
+    return MmRect(cols[0].x, content.y, w, h)
+
+
+def _left_stack_well(content: MmRect) -> MmRect | None:
+    cols = column_rects(content)
+    n = len(cols)
+    if n < 1:
+        return None
+    max_span = max(1, n - 1) if n > 1 else 1
+    want_w = min(content.w * 0.40, 46.0)
+    span = 1
+    if n > 1:
+        pitch = cols[1].x - cols[0].x
+        if pitch > 1:
+            span = max(1, min(max_span, int(round(want_w / pitch))))
+    w = cols[span - 1].right - cols[0].x
+    if n > 1 and content.w - w < MIN_TEXT_MM:
+        return None
+    h = content.h if n > 1 else min(content.h, content.h - MIN_TEXT_MM)
+    if h < MIN_PHOTO_MM:
+        return None
+    return MmRect(cols[0].x, content.y, w, h)
 
 
 def _shrink_well(
@@ -187,28 +277,16 @@ def _shrink_well(
     images: list[ImageSpec],
     min_photo_mm: float,
     max_frac: float,
-) -> tuple[MmRect, MmRect, list[ImageBox]]:
+) -> tuple[MmRect, list[ImageBox]]:
     room = content.w * content.h
     target = max_frac * room
     if well.w * well.h <= target or well.w * well.h <= 1:
         boxes, _ = _fill_well(well, images, variant, min_photo_mm=min_photo_mm)
-        text = _text_complement(content, well, variant)
-        return well, text, boxes
-    scale = (target / (well.w * well.h)) ** 0.5
-    if variant.startswith("left"):
-        w = max(min_photo_mm, well.w * scale)
-        well, text = content.split_left(w)
-    else:
-        h = max(min_photo_mm + CAPTION_MM, well.h * scale)
-        well, text = content.split_top(h)
+        return well, boxes
+    h = max(min_photo_mm + CAPTION_MM, target / well.w)
+    well = MmRect(well.x, well.y, well.w, min(h, well.h))
     boxes, _ = _fill_well(well, images, variant, min_photo_mm=min_photo_mm)
-    return well, text, boxes
-
-
-def _text_complement(content: MmRect, well: MmRect, variant: str) -> MmRect:
-    if variant.startswith("left"):
-        return MmRect(well.right, content.y, max(0.0, content.right - well.right), content.h)
-    return MmRect(content.x, well.bottom, content.w, max(0.0, content.bottom - well.bottom))
+    return well, boxes
 
 
 def _fill_well(
@@ -261,7 +339,6 @@ def _fill_well(
         leftover.extend(overflow)
         return boxes, leftover
 
-    # 未知 variant:全塞 overflow
     return [], list(images)
 
 
@@ -280,7 +357,6 @@ def _split_strip(
     if axis == "x":
         slot_w = (well.w - GUTTER_MM * (n - 1)) / n
         if slot_w < min_photo_mm * 0.85:
-            # 并排太窄,只留第一张,其余 overflow
             boxes.append(_fit_one(well, images[0], min_photo_mm))
             return boxes, images[1:]
         for i, img in enumerate(images):
@@ -306,7 +382,10 @@ def _split_strip(
 
 
 def _fit_one(slot: MmRect, img: ImageSpec, min_photo_mm: float) -> ImageBox:
-    """contain 进格子;短边过小则 cover;再小就 overflow。caption 从格子底部扣。"""
+    """contain 进格子;短边过小则 cover;再小就 overflow。caption 从格子底部扣。
+
+    图顶对齐:井已经按栏咬过,再垂直居中会在图上方留出图1那种空带。
+    """
     photo = slot.inset(b=CAPTION_MM if img.caption or True else 0)
     if photo.w < 8 or photo.h < 8:
         return ImageBox(img, slot, fitted="placeholder", scale=0.0, overflow=True)
@@ -317,16 +396,14 @@ def _fit_one(slot: MmRect, img: ImageSpec, min_photo_mm: float) -> ImageBox:
     fitted_w, fitted_h = nat_w * contain, nat_h * contain
     mode = "contain"
     if min(fitted_w, fitted_h) < min_photo_mm:
-        # 改 cover:填满格子,允许裁切
         cover = max(photo.w / nat_w, photo.h / nat_h)
         fitted_w, fitted_h = photo.w, photo.h
         contain = cover
         mode = "cover"
         if min(photo.w, photo.h) < min_photo_mm * 0.72:
             return ImageBox(img, slot, fitted="placeholder", scale=contain, overflow=True)
-    # 居中放置(contain 时图可能小于格子)
     x = photo.x + max(0.0, (photo.w - min(fitted_w, photo.w)) / 2)
-    y = photo.y + max(0.0, (photo.h - min(fitted_h, photo.h)) / 2)
+    y = photo.y
     rect = MmRect(x, y, min(fitted_w, photo.w), min(fitted_h, photo.h))
     if not img.src:
         mode = "placeholder"

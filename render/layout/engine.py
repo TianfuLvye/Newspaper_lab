@@ -5,7 +5,12 @@ import math
 from dataclasses import dataclass
 
 from render.layout.grid import CellRect, MmRect, PageGeom
-from render.layout.images import estimate_well_height_mm, estimate_well_width_mm, plan_image_slots
+from render.layout.images import (
+    estimate_well_height_mm,
+    estimate_well_width_mm,
+    plan_image_slots,
+    wrap_obstacles,
+)
 from render.layout.measure import (
     TypeSpec,
     cells_for_height,
@@ -14,6 +19,7 @@ from render.layout.measure import (
     column_rects,
     estimate_title_height_mm,
     line_height_mm,
+    punch_columns,
     split_body,
     text_height_mm,
     title_size,
@@ -21,7 +27,7 @@ from render.layout.measure import (
 )
 from render.layout.model import Article, Chunk, LayoutResult, PageLayout, PlacedBlock
 from render.layout.pack import MaxRects, no_overlaps
-from render.markup import strip_inline_md
+from render.markup import has_md_table, strip_inline_md
 
 
 SECTION_ORDER_AM = [
@@ -570,21 +576,45 @@ def _materialize(
     plan = plan_image_slots(body_space, images)
     text_rect = plan.text_rect or body_space
     overflow_imgs = list(plan.overflow_images)
+    obstacles = wrap_obstacles(plan.well, plan.image_boxes)
 
     n_cols = column_count(text_rect.w) if text_rect else 1
     jump_reserve = 4.2
-    fit_h = max(0.0, text_rect.h - jump_reserve)
-    n_fit = chars_that_fit(chunk.body, text_rect.w, fit_h, types.body_pt, types.line_ratio)
+    table_flow = has_md_table(chunk.body) and bool(obstacles)
+    if table_flow:
+        # 表格要通栏:绕排让位,正文从图井下方整块排,和以前的上下型一样。
+        y0 = max(o.bottom for o in obstacles) + 1.2
+        y0 = min(y0, text_rect.bottom)
+        flow = MmRect(text_rect.x, y0, text_rect.w, max(0.0, text_rect.bottom - y0))
+        n_cols = column_count(flow.w) if flow.w > 1 else 1
+        fit_h = max(0.0, flow.h - jump_reserve)
+        n_fit = chars_that_fit(chunk.body, flow.w, fit_h, types.body_pt, types.line_ratio)
+        text_rect = flow
+    else:
+        punched = punch_columns(text_rect, obstacles, n_cols)
+        fit_cols = [
+            MmRect(c.x, c.y, c.w, max(0.0, c.h - jump_reserve)) for c in punched
+        ]
+        n_fit = chars_that_fit(
+            chunk.body,
+            text_rect.w,
+            text_rect.h,
+            types.body_pt,
+            types.line_ratio,
+            col_rects=fit_cols,
+        )
     if n_fit <= 0 and chunk.body:
         n_fit = min(80, len(chunk.body))
     head, tail = split_body(chunk.body, n_fit)
     if tail and len(tail) < 48:
         head, tail = chunk.body, ""
 
-    if text_rect and head:
+    # 字少就收栏:有图时不能把图所占的栏收掉,否则绕排对不齐。
+    if text_rect and head and not plan.image_boxes:
         cols = column_rects(text_rect, n_cols)
         col_w = cols[0].w
         n_lines = len(wrap_text(strip_inline_md(head), col_w, types.body_pt))
+        fit_h = max(0.0, text_rect.h - jump_reserve)
         per = max(1, int(fit_h / line_height_mm(types.body_pt, types.line_ratio)))
         n_need = max(1, math.ceil(n_lines / per)) if n_lines else 1
         if n_need < n_cols:
@@ -626,6 +656,7 @@ def _materialize(
         title_rect=title_rect,
         text_rect=text_rect,
         image_boxes=plan.image_boxes,
+        well=plan.well,
         section=art.section,
         article_id=art.id,
         n_text_cols=n_cols,

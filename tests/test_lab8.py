@@ -13,8 +13,8 @@ sys.path.insert(0, str(ROOT))
 
 from render.layout.engine import density_mode, layout_edition
 from render.layout.grid import CellRect, MmRect, PageGeom
-from render.layout.images import classify, plan_image_slots
-from render.layout.measure import chars_that_fit, column_count, wrap_text, split_body
+from render.layout.images import classify, plan_image_slots, wrap_obstacles
+from render.layout.measure import chars_that_fit, column_count, punch_columns, wrap_text, split_body
 from render.layout.model import Article, ImageSpec
 from render.layout.pack import MaxRects, no_overlaps
 from render.lede import extractive_lede
@@ -196,14 +196,50 @@ p3 = plan_image_slots(frame, [img_l, img_s, img_p])
 check("3 张吃进方案", p3.variant in ("hero-plus-2", "top-3"), p3.variant)
 check("3 张框数 ≤ 3", len(p3.image_boxes) <= 3)
 if p3.text_rect:
+    punched3 = punch_columns(p3.text_rect, wrap_obstacles(p3.well, p3.image_boxes))
     check(
         "图井不吞掉全部正文",
-        p3.text_rect.h >= 20,
-        f"text_h={p3.text_rect.h} variant={p3.variant}",
+        max((c.h for c in punched3), default=0) >= 20,
+        f"text_h={max((c.h for c in punched3), default=0)} variant={p3.variant}",
     )
 
 tiny = plan_image_slots(MmRect(0, 0, 18, 18), [img_l, img_p, img_s])
 check("格子太小则图溢出到续页", len(tiny.overflow_images) >= 1, tiny.variant)
+
+wide = MmRect(0, 0, 220, 140)
+p_wrap = plan_image_slots(wide, [img_l])
+n5 = column_count(wide.w)
+check("220mm 是 5 栏", n5 == 5, str(n5))
+check("宽稿横图走顶井", p_wrap.variant.startswith("top"), p_wrap.variant)
+check("绕排正文区仍全宽", p_wrap.text_rect is not None and abs(p_wrap.text_rect.w - wide.w) < 0.1)
+punched = punch_columns(wide, wrap_obstacles(p_wrap.well, p_wrap.image_boxes), n5)
+side_h = punched[0].h
+mid_h = punched[len(punched) // 2].h
+check("旁栏高于图下各栏", side_h > mid_h + 8, f"side={side_h:.1f} mid={mid_h:.1f}")
+check("旁栏从内容顶起排", abs(punched[0].y - wide.y) < 2, f"y={punched[0].y}")
+check(
+    "中栏从图下起排",
+    p_wrap.well is not None and punched[len(punched) // 2].y >= p_wrap.well.bottom - 0.5,
+    f"mid_y={punched[len(punched) // 2].y} well_b={None if p_wrap.well is None else p_wrap.well.bottom}",
+)
+if p_wrap.well:
+    check("图井窄于全文", p_wrap.well.w < wide.w - 10, f"well.w={p_wrap.well.w:.1f}")
+    check(
+        "图井居中",
+        p_wrap.well.x > wide.x + 5 and p_wrap.well.right < wide.right - 5,
+        f"x={p_wrap.well.x:.1f} right={p_wrap.well.right:.1f}",
+    )
+    frac = (p_wrap.well.w * p_wrap.well.h) / (wide.w * wide.h)
+    check("井面积 ≤ 45%", frac <= 0.451, f"{frac:.2f}")
+p_full = plan_image_slots(wide, [img_l, img_s])
+if p_full.well:
+    check("两张铺满则井接近全宽", p_full.well.w >= wide.w - 1, f"w={p_full.well.w:.1f}")
+    punched2 = punch_columns(wide, wrap_obstacles(p_full.well, p_full.image_boxes), n5)
+    check(
+        "铺满时各栏都从图下起",
+        all(abs(c.y - punched2[0].y) < 1.5 for c in punched2),
+        str([round(c.y, 1) for c in punched2]),
+    )
 
 art_img = _story(9, 400, images=[img_l, img_p])
 lay_img = layout_edition([art_img], kind="am", edition_id="img", lede="")

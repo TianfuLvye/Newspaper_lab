@@ -76,6 +76,7 @@ class PlacedBlock:
     title_rect: MmRect | None = None
     text_rect: MmRect | None = None
     image_boxes: list[ImageBox] = field(default_factory=list)
+    well: MmRect | None = None
     jump_to: int | None = None
     jump_from: int | None = None
     section: str = ""

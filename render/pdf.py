@@ -15,12 +15,15 @@ from render.layout.measure import (
     char_em,
     column_count,
     column_rects,
+    column_rule_spans,
     line_height_mm,
+    punch_columns,
     title_size,
     wrap_text,
 )
+from render.layout.images import wrap_obstacles
 from render.layout.model import LayoutResult, PageLayout, PlacedBlock
-from render.markup import MdTable, split_md_segments, strip_inline_md
+from render.markup import MdTable, has_md_table, split_md_segments, strip_inline_md
 
 INK = HexColor("#111111")
 MUTED = HexColor("#444444")
@@ -346,17 +349,34 @@ def _draw_article(
             c.drawCentredString(ix + iw / 2, iy + ih / 2, cap[:18])
 
     if block.text_rect is not None and ch.body:
-        _draw_flow(
-            c,
-            ch.body,
-            block.text_rect,
-            body_font,
-            types.body_pt,
-            types.line_ratio,
-            page_h_pt,
-            n_cols=block.n_text_cols or column_count(block.text_rect.w),
-            title_font=title_font,
-        )
+        obstacles = wrap_obstacles(block.well, block.image_boxes)
+        use_table = has_md_table(ch.body)
+        if use_table:
+            _draw_flow(
+                c,
+                ch.body,
+                block.text_rect,
+                body_font,
+                types.body_pt,
+                types.line_ratio,
+                page_h_pt,
+                n_cols=block.n_text_cols or column_count(block.text_rect.w),
+                title_font=title_font,
+            )
+        else:
+            n_cols = block.n_text_cols or column_count(block.text_rect.w)
+            punched = punch_columns(block.text_rect, obstacles, n_cols)
+            _draw_columns(
+                c,
+                ch.body,
+                block.text_rect,
+                body_font,
+                types.body_pt,
+                types.line_ratio,
+                page_h_pt,
+                n_cols,
+                col_rects=punched,
+            )
 
     if block.jump_to:
         c.setFillColor(INK)
@@ -377,21 +397,23 @@ def _draw_columns(
     line_ratio: float,
     page_h_pt: float,
     n_cols: int,
+    col_rects: list[MmRect] | None = None,
 ) -> None:
-    cols = column_rects(rect, max(1, n_cols))
-    col_w = cols[0].w
+    cols = col_rects if col_rects is not None else column_rects(rect, max(1, n_cols))
+    if not cols:
+        return
+    col_w = next((col.w for col in cols if col.w > 1), cols[0].w)
     lines = wrap_text(strip_inline_md(text), col_w, size_pt)
     lh = line_height_mm(size_pt, line_ratio)
-    per = max(1, int(rect.h / lh))
     idx = 0
     c.setFillColor(INK)
     c.setFont(font, size_pt)
     for i, col in enumerate(cols):
-        if i > 0:
-            x_rule = (cols[i - 1].right + col.x) / 2
-            _vline(c, x_rule, col.y + 1.0, col.bottom - 1.0, page_h_pt, 0.22)
-        chunk_lines = lines[idx : idx + per]
+        per = max(0, int(col.h / lh)) if col.h > 1 else 0
+        chunk_lines = lines[idx : idx + per] if per else []
         idx += per
+        if col.h < 2:
+            continue
         cursor = col.y + size_pt * MM_PER_PT * 0.88
         for j, line in enumerate(chunk_lines):
             if cursor > col.bottom - 0.3:
@@ -410,6 +432,8 @@ def _draw_columns(
                     justify=not nxt_empty,
                 )
             cursor += lh
+    for x, y1, y2 in column_rule_spans(rect, cols):
+        _vline(c, x, y1, y2, page_h_pt, 0.22)
 
 
 def _draw_flow(
