@@ -2,7 +2,7 @@
 #
 # load_feeds() 合并顺序:
 #   1. sources.yaml 的 feeds
-#   2. 按 name 套用 replacements（改内置源的 weight / title_regex 等）
+#   2. 按 name 套用 replacements（改内置源的 weight / title_regex / title_exclude_regex 等）
 #   3. 追加本文件 feeds（控制台新加的知乎 / 通用 RSS）
 #   4. 合并 wechat.yaml
 #   5. 丢掉 disabled 里的名字

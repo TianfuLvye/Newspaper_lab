@@ -9,6 +9,8 @@
 #     source: wechat_mp
 #     kind: article
 #     weight: 2.0
+#     # 标题命中则当广告丢掉、不进报纸。只看标题。
+#     # title_exclude_regex: 今日最佳|聊一聊
 #
 # 合并进 collect: load_feeds() 会读 sources.yaml 的 feeds；
 # 公众号单独文件便于敏感 URL / 账号管理，由 settings 加载时合并（见 core/settings.py）。

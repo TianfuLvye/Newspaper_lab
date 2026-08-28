@@ -1,9 +1,11 @@
 """配图管道:从微信 / 华尔街见闻 / 知乎收候选,启发式去噪,出报时 LLM 挑 1–3 张并下载。"""
 from __future__ import annotations
 
+import base64
 import hashlib
 import io
 import json
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -23,7 +25,9 @@ PHOTO_HOST_MARKERS = (
 MAX_CANDIDATES = 8
 MAX_KEEP = 3
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
+MIN_PRINT_SIDE = 160
 COVER_ROLES = {"cover", "og"}
+log = logging.getLogger("fishnet.images")
 
 _SKIP_RE = re.compile(
     r"avatar|emoji|qrcode|qr[_-]?code|icon|logo|badge|spacer|pixel|1x1|"
@@ -39,10 +43,12 @@ _SKIP_CLASS_RE = re.compile(
 )
 _SIZE_QS = {"wx_fmt", "tp", "from", "w", "h", "width", "height", "size"}
 
-PICK_PROMPT = """你是一份个人报纸的图片编辑。从候选图里挑最多 3 张适合印在早报/晚报上的配图。
-丢掉头像、图标、二维码、表情、广告、无关装饰。优先:封面、信息图、正文关键场景。
+PICK_PROMPT = """你是一份个人报纸的图片编辑。下面每张候选都附了图，请看像素再挑。
+最多留 3 张适合印在早报/晚报上的配图。
+丢掉:头像、图标、二维码、表情包、贴纸、吉祥物、漫画装饰、广告、与正文无关的图。
+宁可一张不印,也不要把表情包/贴纸当配图。优先:封面、信息图、正文关键场景。
 只输出 JSON: {"keep": [<候选下标>], "captions": ["..."]}
-captions 与 keep 等长,每条不超过 12 字,没有合适说明就空字符串。
+captions 与 keep 等长,每条不超过 12 字,没有合适说明就空字符串。keep 为空数组表示这篇文章不配图。
 """
 
 
@@ -167,6 +173,14 @@ def harvest_og_image(html: str, *, page_url: str = "") -> list[dict]:
     return out
 
 
+def is_printable_photo(width: int, height: int) -> bool:
+    """表情包/贴纸通常几十像素;报纸配图短边至少要能印清。"""
+    try:
+        return min(int(width), int(height)) >= MIN_PRINT_SIDE
+    except (TypeError, ValueError):
+        return False
+
+
 def prune_candidates(cands: list[dict], *, limit: int = MAX_CANDIDATES) -> list[dict]:
     seen: set[str] = set()
     out: list[dict] = []
@@ -192,6 +206,10 @@ def prune_candidates(cands: list[dict], *, limit: int = MAX_CANDIDATES) -> list[
             rec["width"] = int(raw["width"])
         if raw.get("height"):
             rec["height"] = int(raw["height"])
+        if rec.get("width") and rec.get("height") and not is_printable_photo(
+            rec["width"], rec["height"]
+        ):
+            continue
         out.append(rec)
         if len(out) >= limit:
             break
@@ -206,23 +224,35 @@ def pick_images(
     max_keep: int = MAX_KEEP,
     llm_fn=None,
 ) -> list[dict]:
-    """LLM 挑 keep 下标;失败或没 Key 走启发式。"""
-    pruned = prune_candidates(candidates)
-    if not pruned:
+    """先按 URL 去噪,再挑 keep 下标;失败或没 Key 走启发式。"""
+    return select_photos(
+        title, body, prune_candidates(candidates), max_keep=max_keep, llm_fn=llm_fn
+    )
+
+
+def select_photos(
+    title: str,
+    body: str,
+    photos: list[dict],
+    *,
+    max_keep: int = MAX_KEEP,
+    llm_fn=None,
+) -> list[dict]:
+    """对已下载/已去噪的候选挑 1–3 张。有像素时走 Visual,否则只看 URL 文本。"""
+    if not photos:
         return []
     if llm_fn is not None:
         try:
-            chosen = llm_fn(title, body, pruned)
-            return _apply_keep(pruned, chosen, max_keep=max_keep)
+            return _apply_keep(photos, llm_fn(title, body, photos), max_keep=max_keep)
         except Exception:
-            pass
-    elif llm_api_key():
+            log.warning("image picker llm_fn failed; heuristic fallback", exc_info=True)
+            return heuristic_pick(photos, max_keep=max_keep)
+    if llm_api_key():
         try:
-            chosen = _llm_pick(title, body, pruned)
-            return _apply_keep(pruned, chosen, max_keep=max_keep)
+            return _apply_keep(photos, _llm_pick(title, body, photos), max_keep=max_keep)
         except Exception:
-            pass
-    return heuristic_pick(pruned, max_keep=max_keep)
+            log.warning("visual pick failed; heuristic fallback", exc_info=True)
+    return heuristic_pick(photos, max_keep=max_keep)
 
 
 def heuristic_pick(candidates: list[dict], *, max_keep: int = MAX_KEEP) -> list[dict]:
@@ -265,7 +295,7 @@ def save_image_bytes(data: bytes, dest_dir: Path) -> dict | None:
     except Exception:
         return None
     w, h = im.size
-    if w < 40 or h < 40:
+    if not is_printable_photo(w, h):
         return None
     fmt = (im.format or "").upper()
     digest = hashlib.sha256(data).hexdigest()[:16]
@@ -339,25 +369,33 @@ class ImageMaterializer:
         key = f"{item.content_hash or item.url}:{keep}"
         if key in self._cache:
             return self._cache[key]
-        cands = list(item.images or [])
+        cands = prune_candidates(list(item.images or []))
         if not cands:
             self._cache[key] = []
             return []
+        downloaded: list[dict] = []
+        for cand in cands:
+            saved = self._download(cand, referer=item.url)
+            if saved:
+                downloaded.append(saved)
+        if not downloaded:
+            self._cache[key] = []
+            return []
         body = readable_body(item) or item.summary or ""
-        picked = pick_images(
+        picked = select_photos(
             item.title or "",
             body,
-            cands,
+            downloaded,
             llm_fn=self.llm_fn,
             max_keep=keep,
         )
-        local: list[dict] = []
-        for cand in picked:
-            saved = self._download(cand, referer=item.url)
-            if saved:
-                local.append(saved)
-        self._cache[key] = local
-        return local
+        keep_names = {Path(r["path"]).name for r in picked if r.get("path")}
+        for rec in downloaded:
+            path = rec.get("path")
+            if path and Path(path).name not in keep_names:
+                Path(path).unlink(missing_ok=True)
+        self._cache[key] = picked
+        return picked
 
     def _download(self, cand: dict, *, referer: str) -> dict | None:
         url = cand.get("url") or ""
@@ -397,7 +435,26 @@ def _apply_keep(pruned: list[dict], chosen: dict, *, max_keep: int) -> list[dict
         out.append(rec)
         if len(out) >= max_keep:
             break
-    return out or heuristic_pick(pruned, max_keep=max_keep)
+    return out
+
+
+def _vision_data_url(path: Path, *, max_side: int = 768) -> str | None:
+    try:
+        from PIL import Image as PILImage
+    except ImportError:
+        return None
+    try:
+        im = PILImage.open(path)
+        im.load()
+    except Exception:
+        return None
+    if im.mode != "RGB":
+        im = im.convert("RGB")
+    im.thumbnail((max_side, max_side))
+    buf = io.BytesIO()
+    im.save(buf, format="JPEG", quality=75)
+    b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{b64}"
 
 
 def _llm_pick(title: str, body: str, pruned: list[dict]) -> dict:
@@ -407,23 +464,37 @@ def _llm_pick(title: str, body: str, pruned: list[dict]) -> dict:
     base = llm_base_url()
     model = llm_visual_model()
     lines = []
+    user_content: list[dict] = []
     for i, c in enumerate(pruned):
-        lines.append(f"{i}. role={c.get('role')} alt={c.get('alt') or '-'} url={c['url'][:180]}")
+        w = c.get("width") or "?"
+        h = c.get("height") or "?"
+        lines.append(f"{i}. role={c.get('role')} alt={c.get('alt') or '-'} size={w}x{h}")
+        path = c.get("path")
+        if path and Path(path).is_file():
+            data_url = _vision_data_url(Path(path))
+            if data_url:
+                user_content.append(
+                    {"type": "image_url", "image_url": {"url": data_url}}
+                )
+    user_content.insert(
+        0,
+        {
+            "type": "text",
+            "text": (
+                f"标题: {title}\n正文开头: {(body or '')[:400]}\n候选:\n"
+                + "\n".join(lines)
+            ),
+        },
+    )
     payload = {
         "model": model,
         "temperature": 0,
         "messages": [
             {"role": "system", "content": PICK_PROMPT.strip()},
-            {
-                "role": "user",
-                "content": (
-                    f"标题: {title}\n正文开头: {(body or '')[:400]}\n候选:\n"
-                    + "\n".join(lines)
-                ),
-            },
+            {"role": "user", "content": user_content},
         ],
     }
-    with httpx.Client(timeout=20.0) as client:
+    with httpx.Client(timeout=60.0) as client:
         r = client.post(
             f"{base}/chat/completions",
             json=payload,

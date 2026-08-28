@@ -282,11 +282,15 @@ def _clean_story_body(
     images: list[ImageSpec] = []
 
     def on_md(m: re.Match) -> str:
-        images.append(_image_spec(m.group(2).strip(), m.group(1), m.group(1), base))
+        spec = _image_spec(m.group(2).strip(), m.group(1), m.group(1), base)
+        if spec is not None:
+            images.append(spec)
         return ""
 
     def on_html(m: re.Match) -> str:
-        images.append(_image_spec(m.group(1).strip(), "", "", base))
+        spec = _image_spec(m.group(1).strip(), "", "", base)
+        if spec is not None:
+            images.append(spec)
         return ""
 
     text = _IMG_RE.sub(on_md, text)
@@ -324,7 +328,7 @@ def _clean_story_body(
     return body, images[:3], url, byline
 
 
-def _image_spec(src: str, alt: str, caption: str, base: Path | None) -> ImageSpec:
+def _image_spec(src: str, alt: str, caption: str, base: Path | None) -> ImageSpec | None:
     w, h = 1200, 800
     path = None
     if src:
@@ -335,9 +339,11 @@ def _image_spec(src: str, alt: str, caption: str, base: Path | None) -> ImageSpe
             path = base / src
         if path is not None:
             try:
-                from enrich.images import image_size
+                from enrich.images import image_size, is_printable_photo
 
                 w, h = image_size(path)
+                if not is_printable_photo(w, h):
+                    return None
             except Exception:
                 pass
     return ImageSpec(src=src, alt=alt or "", caption=caption or "", width_px=w, height_px=h)

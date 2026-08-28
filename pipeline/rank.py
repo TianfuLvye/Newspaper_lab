@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 
 import numpy as np
 
+from collectors.rss_generic import is_excluded_feed_title, title_exclude_by_collector
 from core.schema import Item, Kind, Source
 from core.store import Store
 from core.text import (
@@ -63,13 +64,17 @@ def has_readable_body(it: Item) -> bool:
     return len(body) >= MIN_BODY
 
 
-def is_rank_candidate(it: Item) -> bool:
-    """个性化打分只看订阅长文,不看热榜八卦、B站视频、知乎赞同动态。"""
+def is_rank_candidate(
+    it: Item, *, title_exclude: dict | None = None
+) -> bool:
+    """个性化打分只看订阅长文,不看热榜八卦、B站视频、知乎赞同动态、广告槽。"""
     if it.kind == Kind.HOTLIST or it.kind == Kind.VIDEO:
         return False
     if it.source in HOTLIST_SOURCES or it.source == Source.BILIBILI:
         return False
     if is_zhihu_activity_item(it):
+        return False
+    if is_excluded_feed_title(it, patterns=title_exclude):
         return False
     if it.kind not in SCORE_KINDS:
         return False
@@ -145,7 +150,8 @@ def rank_items(
     if not items:
         return RankResult([], [], [], [], {}, 0, 0, 0, kind)
 
-    items = [it for it in items if is_rank_candidate(it)]
+    title_exclude = title_exclude_by_collector()
+    items = [it for it in items if is_rank_candidate(it, title_exclude=title_exclude)]
     if not items:
         return RankResult([], [], [], [], {}, 0, 0, 0, kind)
 
@@ -212,7 +218,7 @@ def rank_items(
     # 绝对阈值:低分不拿来凑版。热榜标题即使混进来也不要。
     viable = [
         ri for ri in folded_ranked
-        if ri.total >= MIN_SCORE and is_rank_candidate(ri.item)
+        if ri.total >= MIN_SCORE and is_rank_candidate(ri.item, title_exclude=title_exclude)
     ]
 
     if not viable:
@@ -348,6 +354,7 @@ def collect_rank_candidates(
         unused_only=unused_only,
         limit=limit,
     )
+    title_exclude = title_exclude_by_collector()
     out = []
     for it in items:
         t = item_published_at(it)
@@ -356,7 +363,7 @@ def collect_rank_candidates(
                 t = t.replace(tzinfo=timezone.utc)
             if t < since:
                 continue
-        if is_rank_candidate(it):
+        if is_rank_candidate(it, title_exclude=title_exclude):
             out.append(it)
     return out
 

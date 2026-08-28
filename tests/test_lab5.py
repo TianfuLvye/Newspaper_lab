@@ -508,14 +508,44 @@ def test_weixin_and_zhihu_harvest_images():
     check("heuristic drops avatar url", all("mmhead" not in c["url"] for c in noisy))
     check("heuristic prefers cover first", picked and picked[0]["role"] == "cover", str(picked))
     check("heuristic ≤3", len(picked) <= 3)
+    sized = prune_candidates(
+        [
+            {
+                "url": "https://example.com/sticker.png",
+                "alt": "萌",
+                "role": "body",
+                "width": 50,
+                "height": 48,
+            },
+            {
+                "url": "https://example.com/cover.jpg",
+                "alt": "封面",
+                "role": "cover",
+                "width": 800,
+                "height": 450,
+            },
+        ]
+    )
+    check("prune drops declared sticker size", [c["url"] for c in sized] == ["https://example.com/cover.jpg"])
 
     def fake_llm(title, body, cands):
         return {"keep": [0], "captions": ["封面"]}
 
     llm_picked = pick_images("t", "b" * 20, noisy, llm_fn=fake_llm)
     check("mock llm keep index", len(llm_picked) == 1 and llm_picked[0]["role"] == "cover")
+    empty = pick_images("t", "b" * 20, noisy, llm_fn=lambda *_: {"keep": [], "captions": []})
+    check("llm empty keep means no photos", empty == [])
 
-    from enrich.images import harvest_rss_html
+    from enrich.images import harvest_rss_html, is_printable_photo, save_image_bytes
+
+    check("sticker too small", is_printable_photo(50, 48) is False)
+    check("news photo ok", is_printable_photo(640, 480) is True)
+    tiny = Path(tempfile.mkdtemp())
+    from PIL import Image as PILImage
+    import io as _io
+    buf = _io.BytesIO()
+    PILImage.new("RGBA", (50, 48), (0, 0, 0, 255)).save(buf, format="PNG")
+    check("save drops sticker png", save_image_bytes(buf.getvalue(), tiny) is None)
 
     rss_imgs = harvest_rss_html(
         ['<p>摘要</p><img src="https://mmbiz.qpic.cn/mmbiz_jpg/RSSPIC/640?wx_fmt=jpeg" alt="rss"/>'],

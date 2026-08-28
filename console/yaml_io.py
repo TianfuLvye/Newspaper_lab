@@ -70,6 +70,8 @@ def _feed_row(row: dict) -> dict:
         out["weight"] = float(row["weight"])
     if row.get("title_regex"):
         out["title_regex"] = str(row["title_regex"])
+    if row.get("title_exclude_regex"):
+        out["title_exclude_regex"] = str(row["title_exclude_regex"])
     if row.get("interval_minutes"):
         out["interval_minutes"] = int(row["interval_minutes"])
     return out
@@ -102,6 +104,7 @@ class FeedView:
     kind: str
     weight: float | None
     title_regex: str | None
+    title_exclude_regex: str | None
     interval_minutes: int | None
     origin: str
     enabled: bool
@@ -117,6 +120,7 @@ class FeedView:
             "kind": self.kind,
             "weight": self.weight,
             "title_regex": self.title_regex,
+            "title_exclude_regex": self.title_exclude_regex,
             "interval_minutes": self.interval_minutes,
             "origin": self.origin,
             "enabled": self.enabled,
@@ -168,6 +172,9 @@ class FeedStore:
             kind=str(row.get("kind") or "article"),
             weight=None if weight is None or weight == "" else float(weight),
             title_regex=str(row["title_regex"]) if row.get("title_regex") else None,
+            title_exclude_regex=(
+                str(row["title_exclude_regex"]) if row.get("title_exclude_regex") else None
+            ),
             interval_minutes=(
                 int(row["interval_minutes"]) if row.get("interval_minutes") else None
             ),

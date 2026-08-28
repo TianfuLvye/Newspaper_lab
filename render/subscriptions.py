@@ -95,17 +95,21 @@ def collect_subscription_items(
     collector_names: set[str] | None = None,
     unused_only: bool = False,
     max_per_collector: int = 5,
+    feeds: list[dict] | None = None,
 ) -> list[Item]:
     """取窗口内 RSS 条目。默认每源最多 5 条、有正文优先、源与源轮询。
 
     窗口看刊出时间(published_at),不是抓取时间,避免旧稿因未读积压混进今天。
-    视频没有转写,不占订阅版位。知乎赞同/动态也不进报。
+    视频没有转写,不占订阅版位。知乎赞同/动态、标题排除(广告槽)也不进报。
     """
-    names = collector_names if collector_names is not None else _rss_collector_names()
+    names = collector_names if collector_names is not None else _rss_collector_names(feeds)
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(hours=window_hours)
     fetch_since = now - timedelta(hours=max(window_hours, 72))
     items = store.query_items(since=fetch_since, unused_only=unused_only, limit=5000)
+    from collectors.rss_generic import is_excluded_feed_title, title_exclude_by_collector
+
+    excludes = title_exclude_by_collector(feeds)
     kept: list[Item] = []
     for it in items:
         if it.collector not in names:
@@ -114,6 +118,8 @@ def collect_subscription_items(
             continue
         if is_zhihu_activity_item(it):
             continue
+        if is_excluded_feed_title(it, patterns=excludes):
+            continue
         t = item_published_at(it)
         if t is not None:
             if t.tzinfo is None:
@@ -121,7 +127,7 @@ def collect_subscription_items(
             if t < cutoff:
                 continue
         kept.append(it)
-    weights = _feed_weights() if collector_names is None else None
+    weights = _feed_weights(feeds) if collector_names is None else None
     return _round_robin(
         kept,
         limit=limit,

@@ -227,6 +227,8 @@ def create_app(
             row["weight"] = view.weight
         if view.title_regex:
             row["title_regex"] = view.title_regex
+        if view.title_exclude_regex:
+            row["title_exclude_regex"] = view.title_exclude_regex
         if view.interval_minutes:
             row["interval_minutes"] = view.interval_minutes
         refreshed = False

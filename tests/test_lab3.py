@@ -14,7 +14,9 @@ from collectors.rss_generic import (
     _extract_content,
     _parse_struct_time,
     _strip_html,
+    is_excluded_feed_title,
     slugify,
+    title_exclude_by_collector,
 )
 from core.registry import all_collectors, get_collector, list_collector_names
 from core.schema import Item, Kind, Source
@@ -451,12 +453,120 @@ def test_title_regex_keeps_zaobao_only():
         check("drops 瞎扯", not any("瞎扯" in t for t in titles))
 
 
+def test_title_exclude_regex_drops_ads():
+    xml = """<?xml version="1.0" encoding="utf-8"?>
+    <rss version="2.0">
+      <channel>
+        <title>差评</title>
+        <item>
+          <title>今日最佳：一堆优惠券</title>
+          <link>https://mp.weixin.qq.com/s/ad1</link>
+          <description>广告槽</description>
+        </item>
+        <item>
+          <title>真正有用的评测</title>
+          <link>https://mp.weixin.qq.com/s/keep</link>
+          <description>正经长文</description>
+        </item>
+        <item>
+          <title>聊一聊本周槽点</title>
+          <link>https://mp.weixin.qq.com/s/ad2</link>
+          <description>也是广告槽</description>
+        </item>
+        <item>
+          <title>标题干净的一篇</title>
+          <link>https://mp.weixin.qq.com/s/keep2</link>
+          <description>今日最佳出现在正文里也不该杀</description>
+        </item>
+      </channel>
+    </rss>
+    """
+    with tempfile.TemporaryDirectory() as td:
+        path = Path(td) / "chapin.xml"
+        path.write_text(xml, encoding="utf-8")
+        cfg = {
+            "name": "差评X.PIN",
+            "url": path.as_uri(),
+            "source": "wechat_mp",
+            "kind": "article",
+            "title_exclude_regex": "今日最佳|聊一聊",
+        }
+        items = list(RSSCollector(cfg).collect())
+        titles = [it.title for it in items]
+        check("drops 今日最佳", not any("今日最佳" in t for t in titles), str(titles))
+        check("drops 聊一聊", not any("聊一聊" in t for t in titles), str(titles))
+        check("keeps real review", "真正有用的评测" in titles, str(titles))
+        check("exclude is title-only", "标题干净的一篇" in titles, str(titles))
+
+    from console.yaml_io import _feed_row
+    from pipeline.rank import is_rank_candidate
+
+    row = _feed_row(
+        {
+            "name": "差评X.PIN",
+            "url": "http://127.0.0.1:4000/feeds/x.atom",
+            "source": "wechat_mp",
+            "kind": "article",
+            "weight": 2.0,
+            "title_exclude_regex": "今日最佳|聊一聊",
+        }
+    )
+    check("yaml keeps exclude", row.get("title_exclude_regex") == "今日最佳|聊一聊")
+
+    col = f"rss_{slugify('差评X.PIN')}"
+    feeds = [{"name": "差评X.PIN", "title_exclude_regex": "今日最佳|聊一聊"}]
+    pats = title_exclude_by_collector(feeds)
+    body = "正经公众号正文。" * 12
+    now = datetime.now(timezone.utc)
+    ad = Item(
+        Source.WECHAT_MP,
+        Kind.ARTICLE,
+        "今日最佳：已经进过库的广告",
+        "https://mp.weixin.qq.com/s/old-ad",
+        content=body,
+        collector=col,
+        published_at=now,
+        fetched_at=now,
+    )
+    keep = Item(
+        Source.WECHAT_MP,
+        Kind.ARTICLE,
+        "已经进过库的正经稿",
+        "https://mp.weixin.qq.com/s/old-keep",
+        content=body,
+        collector=col,
+        published_at=now,
+        fetched_at=now,
+    )
+    check("helper flags ad", is_excluded_feed_title(ad, patterns=pats))
+    check("helper keeps article", not is_excluded_feed_title(keep, patterns=pats))
+    check("rank drops ad", is_rank_candidate(ad, title_exclude=pats) is False)
+    check("rank keeps article", is_rank_candidate(keep, title_exclude=pats) is True)
+
+    with tempfile.TemporaryDirectory() as td:
+        store = Store(Path(td) / "t.db")
+        try:
+            store.upsert_items([ad, keep])
+            got = collect_subscription_items(
+                store,
+                window_hours=48,
+                collector_names={col},
+                feeds=feeds,
+            )
+            titles = [i.title for i in got]
+            check("subscribe drops ad", "今日最佳：已经进过库的广告" not in titles, str(titles))
+            check("subscribe keeps article", "已经进过库的正经稿" in titles, str(titles))
+        finally:
+            store.close()
+
+
 def main():
     test_slugify_and_helpers()
     test_feeds_config_coverage()
     test_registry_rss_collectors()
     test_rss_collector_local_feed()
     test_title_regex_keeps_zaobao_only()
+    test_title_exclude_regex_drops_ads()
     test_subscriptions_render()
     test_text_cleanup_and_filters()
     test_lab34_wechat_adr()

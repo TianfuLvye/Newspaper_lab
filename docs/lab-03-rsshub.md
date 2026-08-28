@@ -79,6 +79,7 @@ feeds:
     source: wechat_mp
     kind: article
     weight: 2.0
+    # title_exclude_regex: 标题命中则当广告丢掉。差评每日两槽用 今日最佳|聊一聊
 ```
 
 `core/settings.py` 的 `load_feeds()` 会自动合并 `sources.yaml` 与 `wechat.yaml`。

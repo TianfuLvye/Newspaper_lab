@@ -37,6 +37,37 @@ def slugify(name: str) -> str:
     return s or "unnamed"
 
 
+def compile_title_exclude(pat: str | None) -> re.Pattern | None:
+    if not pat:
+        return None
+    return re.compile(str(pat))
+
+
+def title_exclude_by_collector(feeds: list[dict] | None = None) -> dict[str, re.Pattern]:
+    """collector 名 → 标题排除正则。未传 feeds 时读当前合并后的订阅表。"""
+    from core.settings import load_feeds
+
+    rows = feeds if feeds is not None else load_feeds()
+    out: dict[str, re.Pattern] = {}
+    for row in rows:
+        rx = compile_title_exclude(row.get("title_exclude_regex"))
+        if not rx:
+            continue
+        name = str(row.get("name") or "")
+        if name:
+            out[f"rss_{slugify(name)}"] = rx
+    return out
+
+
+def is_excluded_feed_title(it, *, patterns: dict[str, re.Pattern] | None = None) -> bool:
+    """标题命中该源的 title_exclude_regex,当广告丢掉。只看标题,不看正文。"""
+    pats = title_exclude_by_collector() if patterns is None else patterns
+    rx = pats.get(getattr(it, "collector", "") or "")
+    if not rx:
+        return False
+    return bool(rx.search(getattr(it, "title", "") or ""))
+
+
 def _strip_html(html: str, *, single_line: bool = False) -> str:
     """兼容旧名。正文保留段落;标题才压成一行。"""
     return html_to_text(html or "", single_line=single_line)
@@ -119,6 +150,7 @@ class RSSCollector(BaseCollector):
         pat = cfg.get("title_regex")
         if pat:
             self._title_re = re.compile(str(pat))
+        self._title_exclude_re = compile_title_exclude(cfg.get("title_exclude_regex"))
 
     def collect(self):
         url = self.cfg["url"]
@@ -152,6 +184,8 @@ class RSSCollector(BaseCollector):
             if not title and not link:
                 continue
             if source == Source.ZHIHU and is_zhihu_skip_title(title):
+                continue
+            if self._title_exclude_re is not None and self._title_exclude_re.search(title):
                 continue
             summary_full = _strip_html(e.get("summary", "") or e.get("description", ""))
             if source == Source.ZHIHU:

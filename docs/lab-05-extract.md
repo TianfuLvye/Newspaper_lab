@@ -11,7 +11,7 @@
 3. **礼貌**: 同 URL 24h 磁盘缓存、同域 ≥1.5s、浏览器 UA、默认遵守 robots.txt。
 4. **质量门**: `quality_score`;正文太短或像导航 → 尝试 RSS `summary` 兜底,再不行才 `content=None`。
 5. **入库**: `Store.update_content` / `update_images` + `uv run main.py enrich --limit 20`(逐条打印 tier / host / extractor / imgs)。
-6. **配图候选**: 微信 `data-src`、知乎 `data-original`、见闻 API `image` + content `<img>`;出报再筛。
+6. **配图候选**: 微信 `data-src`、知乎 `data-original`、见闻 API `image` + content `<img>`;出报先丢掉短边 <160px 的表情包/贴纸,再把像素送给 Visual 模型挑 1–3 张。
 7. **测试**: `uv run python -m tests.test_lab5`(20 页语料 + 微信 override / 见闻 API / summary 兜底 / 配图去噪,不访问外网)。
 
 ## 对应验收点

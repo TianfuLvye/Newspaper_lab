@@ -7,7 +7,7 @@
 
 1. **A3 矩阵排版**: 297×420 mm 切成 6 栏 × 14 行。每篇文章外框是矩形;稿内配图按栏对齐绕排,不做 Word 那种行内折行。
 2. **过长分页**: 正文量字后切成续页,写「下转第 N 版 / 上接第 M 版」。单篇最多 2–3 页,再长截断并指向 `items/`。
-3. **配图**: `enrich/images.py` 从微信 / 华尔街见闻 / 知乎收候选,出报时启发式或 LLM 挑 1–3 张下载到 `images/`。`render/layout/images.py` 切图井;没有文件就不切框。
+3. **配图**: `enrich/images.py` 从微信 / 华尔街见闻 / 知乎收候选,出报时丢掉表情包尺寸,再用 Visual 模型看像素挑 1–3 张下载到 `images/`。`render/layout/images.py` 切图井;没有文件就不切框。
 4. **双输出**: `digest.html`(手机扫读 + 浏览器打印兜底)和 `digest.pdf`(归档)。中间层 Markdown 不动。
 5. **今日综述**: 头版报头里约 200 字。有 `FISHNET_LLM_API_KEY` 调一次 LLM,否则抽头版首句。
 6. **CLI**: `uv run main.py render --edition am` 出报时顺带排版;`uv run main.py pdf --edition 2026-08-26-am` 只排版、不打 `used_in`。

@@ -48,7 +48,7 @@
 - **目的**: $S_{llm}$。rubric 写在模块顶部,和手册一致。
 - **成本**: 只打粗排 Top 150;已有 `llm_summary` JSON 则缓存。
 - **无 API 时**: 启发式抽「然而/前提/数据」vs「震惊/必看/营销」。分数刻意保守,避免启发式支配总分。
-- **接 LLM**: 环境变量 `FISHNET_LLM_API_KEY` + 可选 `FISHNET_LLM_BASE_URL` / `FISHNET_LLM_FLASH_MODEL`(文本评委) / `FISHNET_LLM_VISUAL_MODEL`(识图)。
+- **接 LLM**: 环境变量 `FISHNET_LLM_API_KEY` + 可选 `FISHNET_LLM_BASE_URL` / `FISHNET_LLM_FLASH_MODEL`(文本评委) / `FISHNET_LLM_VISUAL_MODEL`(配图看像素,不是只看 URL)。
 
 ### `pipeline/rank.py` · `rank_items`
 

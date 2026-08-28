@@ -432,6 +432,45 @@ def test_collect_wechat_refreshes():
         )
 
 
+def test_wechat_patch_keeps_title_exclude():
+    with tempfile.TemporaryDirectory() as tmp:
+        td = Path(tmp)
+        (td / "sources.yaml").write_text("feeds: []\n", encoding="utf-8")
+        (td / "overlay.yaml").write_text(
+            "feeds: []\nreplacements: []\ndisabled: []\n", encoding="utf-8"
+        )
+        (td / "wechat.yaml").write_text(
+            yaml.safe_dump(
+                {
+                    "feeds": [
+                        {
+                            "name": "差评X.PIN",
+                            "url": "http://127.0.0.1:4000/feeds/MP_WXS_1.atom",
+                            "source": "wechat_mp",
+                            "kind": "article",
+                            "weight": 2.0,
+                            "title_exclude_regex": "今日最佳|聊一聊",
+                        }
+                    ]
+                },
+                allow_unicode=True,
+            ),
+            encoding="utf-8",
+        )
+        store = FeedStore(
+            FeedPaths(
+                sources=td / "sources.yaml",
+                overlay=td / "overlay.yaml",
+                wechat=td / "wechat.yaml",
+                rsshub_url="http://rsshub.test",
+            )
+        )
+        store.patch("差评X.PIN", {"weight": 3.0})
+        view = store.get("差评X.PIN")
+        check("patch keeps exclude", view is not None and view.title_exclude_regex == "今日最佳|聊一聊")
+        check("patch still updates weight", view.weight == 3.0)
+
+
 def main():
     test_detect_zhihu_people()
     test_detect_zhihu_org()
@@ -442,6 +481,7 @@ def main():
     test_mp_id_from_url()
     test_refresh_articles_trpc()
     test_collect_wechat_refreshes()
+    test_wechat_patch_keeps_title_exclude()
     print(f"All console checks passed ({PASS} assertions).")
 
 
