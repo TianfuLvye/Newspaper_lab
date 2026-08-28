@@ -270,7 +270,7 @@ uv run main.py render --edition am
 **吃这些，不要回头打 collector：**
 
 - 主输入：分版 `01_`…`99_`(解析文件名,不必拆 digest)
-- 单篇：正文进矩形,过长下转;再长截断并指向 `items/`
+- 单篇：正文进矩形;头版导语下转,内页尽量一版装完,超长稿置后。不截断(安全阀除外)。
 - 头版「今日综述」：`render/lede.py`,有 Key 调 LLM,否则抽句
 - 调试：`uv run main.py pdf --edition …`(不打 `used_in`)
 

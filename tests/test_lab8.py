@@ -179,6 +179,66 @@ mast = [b for b in lay.pages[0].blocks if b.kind == "masthead"]
 check("头版有报头", len(mast) == 1)
 check("报头占满顶两行", mast[0].cells.w == 6 and mast[0].cells.h == 2)
 
+print("\n[Lab 8] 头版导语 / 内页一版 / 续文打散")
+deep_pages = {
+    b.page
+    for p in lay.pages
+    for b in p.blocks
+    if b.chunk and b.article_id == "deepread-02"
+}
+check("深度短稿不上头版", 0 not in deep_pages, str(deep_pages))
+check("深度短稿一版装完", len(deep_pages) == 1, str(deep_pages))
+front_secs = {
+    b.section
+    for b in lay.pages[0].blocks
+    if b.chunk and b.kind in ("story", "index", "placeholder")
+}
+check("头版只有 headline", front_secs <= {"headline"}, str(front_secs))
+
+spread_arts = [
+    _story(1, 2800, max_pages=4),
+    _story(2, 2800, max_pages=4),
+    _story(3, 2800, max_pages=4),
+]
+spread = layout_edition(spread_arts, kind="am", edition_id="spread-am", lede="散")
+jump_to = sorted(
+    {
+        b.jump_to
+        for p in spread.pages
+        for b in p.blocks
+        if b.chunk and b.chunk.part == 0 and b.jump_to
+    }
+)
+check(
+    "三条头版续文打散到不同版",
+    len(jump_to) >= 3,
+    str(jump_to),
+)
+
+back_arts = [
+    _story(1, 400, max_pages=2),
+    _story(2, 500, section="deepread"),
+    _story(3, 500, section="deepread"),
+    _story(4, 9000, section="subscribe", max_pages=6),
+]
+back = layout_edition(back_arts, kind="am", edition_id="back-am", lede="后")
+first_pg: dict[str, int] = {}
+for p in back.pages:
+    for b in p.blocks:
+        if b.chunk and b.chunk.part == 0:
+            first_pg.setdefault(b.article_id, b.page)
+short_start = [
+    first_pg[k] for k in ("deepread-02", "deepread-03") if k in first_pg
+]
+check(
+    "超长订阅靠后",
+    "subscribe-04" in first_pg
+    and short_start
+    and first_pg["subscribe-04"] > max(short_start),
+    str(first_pg),
+)
+
+
 print("\n[Lab 8] 早晚报差异")
 am = layout_edition(arts, kind="am", edition_id="x-am", lede="早")
 pm = layout_edition(arts, kind="pm", edition_id="x-pm", lede="晚")

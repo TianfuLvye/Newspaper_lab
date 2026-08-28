@@ -36,6 +36,7 @@ SECTION_ORDER_AM = [
     "hotlist",
     "deepread",
     "critical",
+    "oral",
     "subscribe",
     "health",
 ]
@@ -43,6 +44,7 @@ SECTION_ORDER_PM = [
     "headline",
     "deepread",
     "critical",
+    "oral",
     "subscribe",
     "hotlist",
     "health",
@@ -118,29 +120,23 @@ def candidate_shapes(
     return out
 
 
-def first_chunk_cap(chunk: Chunk, max_h: int, cols: int) -> tuple[int, int]:
-    """头版/首截不要吞掉整页。报纸惯例是导语一块、其余下转。"""
+def first_chunk_cap(
+    chunk: Chunk, max_h: int, cols: int, *, page_i: int = 0
+) -> tuple[int, int]:
+    """头版 headline 导语限高;内页开篇和续文可以占满本版。"""
     if chunk.part > 0:
         return cols, max_h
-    sec = chunk.article.section
-    if chunk.article.role == "index" or sec in ("hotlist", "health"):
-        if sec == "hotlist":
-            return 2, max_h
-        return cols, min(max_h, 10)
-    if sec == "headline" and chunk.article.priority <= 0:
-        return min(6, cols), min(max_h, 4)
-    if sec == "headline":
+    if page_i == 0 and chunk.article.section == "headline":
+        if chunk.article.priority <= 0:
+            return min(6, cols), min(max_h, 4)
         return 3, min(max_h, 6)
-    if sec == "deepread":
-        return 3, min(max_h, 6)
-    return 3, min(max_h, 5)
+    return cols, max_h
 
 
 def prefer_for(section: str, part: int) -> str:
     if part > 0:
-        # 续文按尾巴真实长度估面积、优先方柱块:几条「上接」在内页并排站,
-        # 而不是每条都拉一条半空的通栏缎带。
-        return "square"
+        # 续文拿整块宽矩形,一跳尽量写完,不要几条「上接」并排成方柱。
+        return "wide"
     if section == "headline":
         return "wide"
     if section in ("hotlist", "health"):
@@ -150,7 +146,9 @@ def prefer_for(section: str, part: int) -> str:
     return "square"
 
 
-def estimate_area_cells(chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: int) -> int:
+def estimate_area_cells(
+    chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: int, *, cap: bool = True
+) -> int:
     art = chunk.article
     guess_cols = 3 if art.role == "story" else 2
     if art.section == "headline" and chunk.part == 0:
@@ -177,10 +175,22 @@ def estimate_area_cells(chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: in
     n_cols = max(1, column_count(text_w))
     body_h = text_height_mm(chunk.body, text_w / n_cols, types.body_pt, types.line_ratio) / n_cols
     total_h = title_h + img_h + body_h + pad + 6.0
-    rows = min(max_h, max(3, cells_for_height(total_h, geom)))
+    rows = max(3, cells_for_height(total_h, geom))
+    if cap:
+        rows = min(max_h, rows)
     cols = guess_cols
     area = cols * rows
-    return min(area, geom.cols * max_h)
+    if cap:
+        return min(area, geom.cols * max_h)
+    return area
+
+
+def _fits_one_interior_page(
+    chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: int
+) -> bool:
+    """预估整篇(按满页上限之前的面积)能否进一版。超一版的进 long 队列置后。"""
+    area = estimate_area_cells(chunk, geom, types, max_h, cap=False)
+    return area <= geom.cols * max_h
 
 
 @dataclass
@@ -226,15 +236,29 @@ def layout_edition(
     elif density == "briefing":
         warnings.append("本期偏薄,已合并留白,空栏目仍印占位。")
 
-    queue: list[Chunk] = []
+    chunks: list[Chunk] = []
     for a in ordered:
         body0, over = _budget_slice(a.body or "", a.max_chars)
-        queue.append(Chunk(a, body0, list(a.images[:3]), 0, over_budget=over))
+        chunks.append(Chunk(a, body0, list(a.images[:3]), 0, over_budget=over))
+    interior_h = geom.rows - 1
+    front: list[Chunk] = []
+    normal: list[Chunk] = []
+    long_q: list[Chunk] = []
+    for c in chunks:
+        if c.article.section == "headline":
+            front.append(c)
+        elif _fits_one_interior_page(c, geom, types, interior_h):
+            normal.append(c)
+        else:
+            long_q.append(c)
+    long_ids = {c.article.id for c in long_q}
+    parked: list[Chunk] = []
+    seq: list[Chunk] = []
     pages: list[PageLayout] = []
     n_placeholder = sum(1 for a in articles if a.empty or a.role == "placeholder")
 
     safety = 0
-    while queue and safety < 48:
+    while (front or normal or long_q or parked or seq) and safety < 48:
         safety += 1
         page_i = len(pages)
         packer = MaxRects(geom.cols, geom.rows)
@@ -271,8 +295,25 @@ def layout_edition(
                     article_id="inside",
                 )
             )
+        if page_i == 0:
+            work = list(front)
+            front = []
+        else:
+            work = []
+            if parked:
+                work.append(parked.pop(0))
+            work.extend(seq)
+            seq = []
+            work.extend(front)
+            front = []
+            if normal:
+                work.extend(normal)
+                normal = []
+            else:
+                work.extend(long_q)
+                long_q = []
         attempts: list[_Attempt] = []
-        work = _place_pass(packer, list(queue), attempts, geom, types, page_i, max_h)
+        work = _place_pass(packer, list(work), attempts, geom, types, page_i, max_h)
         # 面积是一次性粗估的,装完全文的块常常虚占格子。让它们缩回真实
         # 内容大小,再用吐出来的空格补放排在后面的稿。
         for _ in range(4):
@@ -284,31 +325,17 @@ def layout_edition(
             work = _place_pass(packer, work, attempts, geom, types, page_i, max_h)
             if not changed and len(work) == before:
                 break
-        _grow_into_holes(packer, attempts, geom, types, page_i)
-        rest_work: list[Chunk] = []
-        for att in attempts:
-            if att.rest is not None:
-                rest_work.append(att.rest)
-                att.rest = None
-                att.harvested = True
-        work = _place_pass(
-            packer, rest_work + work, attempts, geom, types, page_i, max_h, chain=True
-        )
-        # 续文按真实尾巴装完后同样可能虚占,再收一轮。
-        for _ in range(4):
-            packer, work, changed = _compact_attempts(
-                packer, attempts, work, geom, types, page_i, max_h,
-                reserved=reserved, chain=True,
-            )
-            packer = _rebuild_packer(geom, reserved, attempts)
-            before = len(work)
-            work = _place_pass(
-                packer, work, attempts, geom, types, page_i, max_h, chain=True
-            )
-            if not changed and len(work) == before:
-                break
+        _grow_into_holes(packer, attempts, geom, types, page_i, max_h)
         leftover = work
         for att in attempts:
+            if att.rest is not None:
+                rest = att.rest
+                att.rest = None
+                att.harvested = True
+                if page_i == 0:
+                    parked.append(rest)
+                else:
+                    seq.append(rest)
             blocks.append(att.block)
 
         used_cells = [b.cells for b in blocks]
@@ -317,12 +344,21 @@ def layout_edition(
 
         pages.append(PageLayout(index=page_i, geom=geom, blocks=blocks))
         content_placed = any(b.kind in ("story", "index", "placeholder") for b in blocks)
-        if leftover == queue and not content_placed:
+        if leftover and not content_placed:
             dropped = leftover.pop(0)
             warnings.append(f"无法为 {dropped.article.id} 分配格子,已跳过")
-            queue = leftover
-            continue
-        queue = leftover
+        for c in leftover:
+            if c.part > 0:
+                if c.article.section == "headline":
+                    parked.insert(0, c)
+                else:
+                    seq.append(c)
+            elif c.article.section == "headline":
+                front.append(c)
+            elif c.article.id in long_ids:
+                long_q.append(c)
+            else:
+                normal.append(c)
 
     _resolve_jumps(pages)
     _fill_inside(pages)
@@ -347,35 +383,52 @@ def _try_place(
     page_i: int,
     max_h: int,
 ) -> _Attempt | None:
-    if chunk.part > 0 and page_i == 0:
-        # 头版只放导语,续文下转内页——华尔街日报也是这样
-        return None
+    if page_i == 0:
+        if chunk.part > 0:
+            # 头版只放导语,续文下转内页——华尔街日报也是这样
+            return None
+        if chunk.article.section != "headline":
+            return None
     area = estimate_area_cells(chunk, geom, types, max_h)
     prefer = prefer_for(chunk.article.section, chunk.part)
-    cap_w, cap_h = first_chunk_cap(chunk, max_h, geom.cols)
+    cap_w, cap_h = first_chunk_cap(chunk, max_h, geom.cols, page_i=page_i)
     area = min(area, cap_w * cap_h)
     # 一栏块合法,但只能矮(短讯/续尾):长腿细栏会像博客侧栏,不像报纸。
     min_w, min_h = (2, 4) if chunk.article.role == "index" else (1, 3)
     if chunk.part > 0:
         min_h = 2
+    interior_open = (
+        page_i > 0
+        and chunk.part == 0
+        and chunk.article.role == "story"
+        and not chunk.article.empty
+    )
+    if interior_open:
+        # 内页开篇必须拿到像样的一块,否则等下一版;禁止在续文缝里开个头再下转。
+        min_w, min_h = 3, 7
     shapes = candidate_shapes(
         area, max_w=cap_w, max_h=cap_h, prefer=prefer, min_h=min_h
     )
     if chunk.article.empty:
         min_w, min_h = 2, 2
         shapes = [(min(6, cap_w), 2), (3, 2), (2, 2)] + shapes
+        interior_open = False
     # 降级阶梯:内容区被目录栏挤窄后,头条的 6×4 放不进去;按面积缩档
     # 找 5×4 / 4×4 之类的次大形状,而不是一步跌到 1 栏火柴梗。
-    for decay in (0.8, 0.62, 0.5):
-        sub_area = max(min_w * min_h, int(area * decay))
-        if sub_area < area:
-            shapes.extend(
-                candidate_shapes(
-                    sub_area, max_w=cap_w, max_h=cap_h, prefer=prefer, min_h=min_h
+    if not interior_open:
+        for decay in (0.8, 0.62, 0.5):
+            sub_area = max(min_w * min_h, int(area * decay))
+            if sub_area < area:
+                shapes.extend(
+                    candidate_shapes(
+                        sub_area, max_w=cap_w, max_h=cap_h, prefer=prefer, min_h=min_h
+                    )
                 )
-            )
-    shapes.append((cap_w, min(cap_h, max(4, math.ceil(area / max(cap_w, 1))))))
-    shapes.append((min(min_w, cap_w), min(min_h, cap_h)))
+        shapes.append((cap_w, min(cap_h, max(4, math.ceil(area / max(cap_w, 1))))))
+        shapes.append((min(min_w, cap_w), min(min_h, cap_h)))
+    else:
+        shapes.append((cap_w, cap_h))
+        shapes.append((min(cap_w, 4), min(cap_h, 8)))
 
     for w, h in shapes:
         if w > cap_w or h > cap_h or w < min_w or h < 2 or (w == 1 and h > 4):
@@ -513,8 +566,12 @@ def _grow_into_holes(
     geom: PageGeom,
     types: TypeSpec,
     page_i: int,
+    max_h: int,
 ) -> None:
-    """把相邻空格吸进已放上的稿,消灭 1 栏缝和页底空洞。"""
+    """把相邻空格吸进已放上的稿,消灭 1 栏缝和页底空洞。
+
+    不突破 first_chunk_cap:头版导语吸满整页就又变回「全员下转第 2 版」。
+    """
     changed = True
     guard = 0
     while changed and guard < 36:
@@ -526,11 +583,20 @@ def _grow_into_holes(
             if att.rest is None:
                 continue
             cell = att.block.cells
+            cap_w, cap_h = first_chunk_cap(
+                att.source, max_h, geom.cols, page_i=page_i
+            )
             grew: CellRect | None = None
-            if packer.region_free(cell.c + cell.w, cell.r, 1, cell.h):
+            if (
+                cell.w < cap_w
+                and packer.region_free(cell.c + cell.w, cell.r, 1, cell.h)
+            ):
                 packer.occupy(cell.c + cell.w, cell.r, 1, cell.h)
                 grew = CellRect(cell.c, cell.r, cell.w + 1, cell.h)
-            elif packer.region_free(cell.c, cell.r + cell.h, cell.w, 1):
+            elif (
+                cell.h < cap_h
+                and packer.region_free(cell.c, cell.r + cell.h, cell.w, 1)
+            ):
                 packer.occupy(cell.c, cell.r + cell.h, cell.w, 1)
                 grew = CellRect(cell.c, cell.r, cell.w, cell.h + 1)
             if grew is None:
