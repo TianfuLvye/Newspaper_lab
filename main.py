@@ -150,6 +150,7 @@ def cmd_render(args: argparse.Namespace) -> int:
         if args.edition not in ("am", "pm"):
             print("edition 必须是 am 或 pm", file=sys.stderr)
             return 1
+        load_env_file()
         store = Store(args.db)
         try:
             result = produce_edition(args.edition, store, out_dir=args.out_dir)

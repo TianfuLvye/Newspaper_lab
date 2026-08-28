@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from core.settings import load_hotlist_sources, load_settings
+from core.settings import load_env_file, load_hotlist_sources, load_settings
 from core.store import Store
 from pipeline.health import HealthReport, diagnose
 from render.health import render_health_md
@@ -250,6 +250,7 @@ def produce_edition(
     `deadline_minutes` 是硬约束:超时的版面改占位,体检页尽量保留。
     口播栏在时限之前写出:滴灌稿有正文就必须进 digest,游标见报后才前进。
     """
+    load_env_file()
     eid = edition_id_for(kind, now=now)
     settings = load_settings()
     dest = out_dir or (settings.editions_dir / eid)
