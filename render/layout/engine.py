@@ -414,15 +414,17 @@ def _fit_chunk_in_hole(
     cap_w, cap_h = first_chunk_cap(chunk, max_h, geom.cols, page_i=page_i)
     best: tuple[int, int, int, CellRect, PlacedBlock, Chunk | None] | None = None
     for sw, sh in _hole_shapes(hole, cap_w, cap_h):
+        cell = CellRect(hole.c, hole.r, sw, sh)
+        block, rest = _materialize(chunk, cell, geom, types, page_i)
+        finishes = rest is None
         if sw < 2 and not chunk.article.empty:
-            continue
+            # 1 栏(1/4 页宽)只收能写完的短讯/续尾,不许开篇下转成长腿。
+            if not finishes or sh > 3:
+                continue
         if chunk.article.role == "index" and sw < 2:
             continue
         if not chunk.article.empty and sh < 2:
             continue
-        cell = CellRect(hole.c, hole.r, sw, sh)
-        block, rest = _materialize(chunk, cell, geom, types, page_i)
-        finishes = rest is None
         is_cont = chunk.part > 0
         is_filler = chunk.article.empty or chunk.article.role == "index"
         if (
@@ -543,7 +545,7 @@ def _compact_attempts(
             continue
         if ch.body != att.source.body or att.source.article.empty:
             continue
-        min_w = 2
+        min_w = 1 if att.source.article.role == "story" else 2
         while True:
             cell = att.block.cells
             shrunk: PlacedBlock | None = None
@@ -553,7 +555,6 @@ def _compact_attempts(
                 CellRect(cell.c, cell.r, cell.w, cell.h - 1),
                 CellRect(cell.c, cell.r + 1, cell.w, cell.h - 1),
             ):
-                # 别缩出又细又长的条:h > 2w 的块像博客侧栏,裂出的缝也拼不回大洞
                 if (
                     trial.w < min_w
                     or (trial.w == 1 and trial.h > 3)
@@ -562,7 +563,7 @@ def _compact_attempts(
                     or trial.r < 0
                     or trial.c + trial.w > geom.cols
                     or trial.r + trial.h > geom.rows
-                    or trial.h > 2 * trial.w
+                    or (trial.w >= 2 and trial.h > 2 * trial.w)
                 ):
                     continue
                 block, rest = _materialize(att.source, trial, geom, types, page_i)
@@ -585,10 +586,13 @@ def _compact_attempts(
                     packer, work, attempts, geom, types, page_i, max_h, chain=chain
                 )
             if len(attempts) == n_before:
-                # 吐出的缝没人进,缩回去,别留 1 栏空条。
-                att.block = prev
-                packer = _rebuild_packer(geom, reserved, attempts)
-                break
+                freed = prev.cells.area - shrunk.cells.area
+                if freed >= 8:
+                    # 吐出的大洞没人进,缩回去。
+                    att.block = prev
+                    packer = _rebuild_packer(geom, reserved, attempts)
+                    break
+                # 小缝没人要也缩:图下文留白撑着 2×3,比页底空 1 行更难看。
             changed = True
     return packer, work, changed
 
@@ -617,23 +621,8 @@ def _grow_into_holes(
             )
             grew: CellRect | None = None
             if att.rest is None:
-                extra_w = 0
-                while packer.region_free(
-                    cell.c + cell.w + extra_w, cell.r, 1, cell.h
-                ):
-                    extra_w += 1
-                extra_h = 0
-                while packer.region_free(
-                    cell.c, cell.r + cell.h + extra_h, cell.w, 1
-                ):
-                    extra_h += 1
-                # 邻格拼不出下一篇(面积 < 8)就吞掉,别留 4×2 空条。
-                if extra_w and extra_w * cell.h < 8 and cell.w < cap_w:
-                    packer.occupy(cell.c + cell.w, cell.r, 1, cell.h)
-                    grew = CellRect(cell.c, cell.r, cell.w + 1, cell.h)
-                elif extra_h and extra_h * cell.w < 8 and cell.h < cap_h:
-                    packer.occupy(cell.c, cell.r + cell.h, cell.w, 1)
-                    grew = CellRect(cell.c, cell.r, cell.w, cell.h + 1)
+                # 已经写完的稿不再吸格:短讯吸回 2 栏、图下文留白会原样回来。
+                continue
             elif (
                 cell.w < cap_w
                 and packer.region_free(cell.c + cell.w, cell.r, 1, cell.h)

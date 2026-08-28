@@ -507,9 +507,9 @@ skinny = [
     (b.article_id, b.cells.w, b.cells.h)
     for p in news.layout.pages
     for b in p.blocks
-    if b.kind == "story" and b.cells.w < 2
+    if b.kind == "story" and (b.cells.w < 1 or (b.cells.w == 1 and b.cells.h > 3))
 ]
-check("稿件至少两栏宽", not skinny, str(skinny))
+check("一栏宽只放短块(短讯/续尾)", not skinny, str(skinny))
 wide = [
     b.n_text_cols
     for p in news.layout.pages
