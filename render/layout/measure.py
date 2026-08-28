@@ -143,12 +143,18 @@ COL_TARGET_MM = 41.0
 COL_GUTTER_MM = 2.2
 
 
-def column_count(width_mm: float) -> int:
-    """一块正文区要切几条竖栏。栏宽约 41mm,接近传统报纸栏。"""
+def column_count(width_mm: float, height_mm: float | None = None) -> int:
+    """一块正文区要切几条竖栏。栏宽约 41mm,接近传统报纸栏。
+
+    矮块少切栏:3×2 导语若切 4 栏,字只够填左边,右边就是空框。
+    """
     if width_mm < 26:
         return 1
     n = max(1, int((width_mm + COL_GUTTER_MM) / (COL_TARGET_MM + COL_GUTTER_MM)))
-    return min(n, 6)
+    n = min(n, 6)
+    if height_mm is not None and height_mm > 0:
+        n = min(n, max(1, int(height_mm / 48.0)))
+    return n
 
 
 def column_rects(rect: MmRect, n: int | None = None) -> list[MmRect]:

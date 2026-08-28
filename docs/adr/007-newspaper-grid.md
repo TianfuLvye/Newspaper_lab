@@ -16,7 +16,7 @@
 
 ## 决策
 
-1. **版心自研**: `render/layout/` 把 A3 切成 6×14 格子,用 MaxRects(BSSF) 给每篇稿一块矩形。Typst/WeasyPrint/Playwright 都不做版心。
+1. **版心自研**: `render/layout/` 把 A3 切成 4×8 格子,用天际线记录占用,按极大空矩形 hole-first 派稿。Typst/WeasyPrint/Playwright 都不做版心。
 2. **落墨用 reportlab**: 只按已经算好的 mm 坐标画字。系统宋体/黑体 TTF,自写 CJK 折行,保证量字和画字同一套度量。
 3. **HTML 是孪生输出**: 同一套坐标写成绝对定位 HTML,方便手机和「浏览器打印到 PDF」兜底。
 4. **纸张 A3 纵向**: 可在普通打印机上缩印或专业店输出。不模拟卷筒宽幅。
@@ -36,7 +36,7 @@
 ## 后果
 
 - **正面**: 调试排版只看 `layout.json` 和格子,不必重跑 collect;图来了只填 `ImageSpec.src`。
-- **负面**: 自研装箱会留下空洞(MaxRects 不是最优);栏对齐绕排仍不在同一栏里把行宽切短,窄图两侧若不足一栏会留一点空白。
+- **负面**: 自研装箱仍会留下空洞(hole-first 不是最优);栏对齐绕排仍不在同一栏里把行宽切短,窄图两侧若不足一栏会留一点空白。
 - **成本**: 多一个 reportlab 依赖;macOS 用系统宋体,Linux 需要 Noto CJK,否则回退 CID 字体。
 
 ## 何时重新评估

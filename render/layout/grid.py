@@ -90,8 +90,8 @@ class PageGeom:
     margin_b: float = 8.0
     footer_h: float = 7.0
     gutter: float = 2.6
-    cols: int = 6
-    rows: int = 14
+    cols: int = 4
+    rows: int = 8
 
     @property
     def content_x(self) -> float:

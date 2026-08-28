@@ -65,22 +65,33 @@ if DOC.exists():
 print("\n[Lab 8] 网格几何")
 g = PageGeom()
 check("纸是 A3", abs(g.page_w - 297) < 0.01 and abs(g.page_h - 420) < 0.01)
-check("6 栏 × 14 行", g.cols == 6 and g.rows == 14)
-full = g.cell_to_mm(CellRect(0, 0, 6, 14))
+check("4 栏 × 8 行", g.cols == 4 and g.rows == 8)
+full = g.cell_to_mm(CellRect(0, 0, 4, 8))
 check("满格覆盖内容区宽度", abs(full.w - g.content_w) < 0.05, f"{full.w} vs {g.content_w}")
 check("满格覆盖内容区高度", abs(full.h - g.content_h) < 0.05, f"{full.h} vs {g.content_h}")
-a = g.cell_to_mm(CellRect(0, 2, 3, 4))
-b = g.cell_to_mm(CellRect(3, 2, 3, 4))
+a = g.cell_to_mm(CellRect(0, 2, 2, 3))
+b = g.cell_to_mm(CellRect(2, 2, 2, 3))
 check("相邻块不重叠", a.right <= b.x + 0.01)
 
-print("\n[Lab 8] MaxRects 装箱")
-pack = MaxRects(6, 12)
-p1 = pack.place(4, 5)
-p2 = pack.place(2, 5)
-p3 = pack.place(6, 3)
+print("\n[Lab 8] 天际线 + hole-first")
+pack = MaxRects(4, 8)
+p1 = pack.place(3, 3)
+p2 = pack.place(1, 3)
+p3 = pack.place(4, 2)
 check("三块都放下", p1 is not None and p2 is not None and p3 is not None)
 check("无重叠", no_overlaps(pack.used))
-check("超出纸面放不下", pack.place(6, 12) is None)
+check("超出纸面放不下", pack.place(4, 8) is None)
+under = MaxRects(4, 8)
+under.occupy(0, 2, 4, 2)
+sky = under.find(4, 2)
+holes = under.free_rects()
+check(
+    "天际线贴轮廓,头顶的洞靠 hole-first 看见",
+    sky is not None
+    and sky.r == 4
+    and any(h.r == 0 and h.w == 4 and h.h == 2 for h in holes),
+    f"sky={sky} holes={holes}",
+)
 
 print("\n[Lab 8] 中文折行")
 lines = wrap_text("渔网计划把一张 A3 切成矩阵。Hello, world.", 40, 9)
@@ -177,7 +188,7 @@ jumps = [
 check("跨页才写下转", bool(jumps), str(jumps))
 mast = [b for b in lay.pages[0].blocks if b.kind == "masthead"]
 check("头版有报头", len(mast) == 1)
-check("报头占满顶两行", mast[0].cells.w == 6 and mast[0].cells.h == 2)
+check("报头占满顶两行", mast[0].cells.w == 4 and mast[0].cells.h == 2)
 
 print("\n[Lab 8] 头版导语 / 内页一版 / 续文打散")
 deep_pages = {
@@ -409,7 +420,7 @@ check("头版有 Inside", any(b.kind == "inside" for b in news.layout.pages[0].b
 inside = next(b for b in news.layout.pages[0].blocks if b.kind == "inside")
 check(
     "Inside 是头版左栏目录",
-    inside.cells.c == 0 and inside.cells.w == 1 and inside.cells.h >= 10,
+    inside.cells.c == 0 and inside.cells.w == 1 and inside.cells.h >= 6,
     str(inside.cells),
 )
 check(
@@ -496,9 +507,9 @@ skinny = [
     (b.article_id, b.cells.w, b.cells.h)
     for p in news.layout.pages
     for b in p.blocks
-    if b.kind == "story" and (b.cells.w < 1 or (b.cells.w == 1 and b.cells.h > 4))
+    if b.kind == "story" and b.cells.w < 2
 ]
-check("一栏宽只放短块(短讯/续尾)", not skinny, str(skinny))
+check("稿件至少两栏宽", not skinny, str(skinny))
 wide = [
     b.n_text_cols
     for p in news.layout.pages

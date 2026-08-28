@@ -27,7 +27,7 @@ from render.layout.measure import (
     wrap_text,
 )
 from render.layout.model import Article, Chunk, LayoutResult, PageLayout, PlacedBlock
-from render.layout.pack import MaxRects, no_overlaps
+from render.layout.pack import Skyline, no_overlaps
 from render.markup import has_md_table, strip_inline_md
 
 
@@ -102,11 +102,11 @@ def candidate_shapes(
             out.append(key)
 
     if prefer == "wide":
-        widths = [6, 5, 4, 3, 2]
+        widths = [4, 3, 2]
     elif prefer == "tall":
         widths = [2, 1, 3, 4]
     else:
-        widths = [3, 2, 4, 5, 6, 1]
+        widths = [2, 3, 4, 1]
 
     floor = max(2, min_h)
     for w in widths:
@@ -127,9 +127,8 @@ def first_chunk_cap(
     if chunk.part > 0:
         return cols, max_h
     if page_i == 0 and chunk.article.section == "headline":
-        if chunk.article.priority <= 0:
-            return min(6, cols), min(max_h, 4)
-        return 3, min(max_h, 6)
+        # 4 栏头版扣掉目录栏剩 3 栏:三条导语各 3×2 刚好叠满。
+        return min(3, cols), min(max_h, 2)
     return cols, max_h
 
 
@@ -150,9 +149,9 @@ def estimate_area_cells(
     chunk: Chunk, geom: PageGeom, types: TypeSpec, max_h: int, *, cap: bool = True
 ) -> int:
     art = chunk.article
-    guess_cols = 3 if art.role == "story" else 2
+    guess_cols = 2 if art.role == "story" else 2
     if art.section == "headline" and chunk.part == 0:
-        guess_cols = 4 if chunk.article.priority <= 1 else 3
+        guess_cols = min(3, geom.cols)
     guess_w = guess_cols * geom.cell_w + max(guess_cols - 1, 0) * geom.gutter
     pad = types.pad_mm * 2
     inner_w = max(20.0, guess_w - pad)
@@ -261,7 +260,7 @@ def layout_edition(
     while (front or normal or long_q or parked or seq) and safety < 48:
         safety += 1
         page_i = len(pages)
-        packer = MaxRects(geom.cols, geom.rows)
+        packer = Skyline(geom.cols, geom.rows)
         mast_h = 2 if page_i == 0 else 1
         mast_cells = CellRect(0, 0, geom.cols, mast_h)
         packer.occupy(mast_cells.c, mast_cells.r, mast_cells.w, mast_cells.h)
@@ -278,9 +277,8 @@ def layout_edition(
             )
         ]
         max_h = geom.rows - mast_h
-        if page_i == 0 and geom.rows - mast_h >= 6:
-            # WSJ 式左栏:头版最左一列固定给本期目录(What's News 栏位),
-            # 正文区变 5 栏 × 12 行,面积与原来的通栏横条相同。
+        if page_i == 0 and geom.rows - mast_h >= 4:
+            # 头版最左一列给本期目录;4 栏时正文区 3 栏。
             rail = CellRect(0, mast_h, 1, geom.rows - mast_h)
             packer.occupy(rail.c, rail.r, rail.w, rail.h)
             reserved.append(rail)
@@ -375,74 +373,89 @@ def layout_edition(
     )
 
 
-def _try_place(
-    packer: MaxRects,
+def _hole_shapes(hole: CellRect, cap_w: int, cap_h: int) -> list[tuple[int, int]]:
+    """对着一个洞列出可放的矩形:先铺满,再变矮/变窄留下余洞。"""
+    w = min(hole.w, cap_w)
+    h = min(hole.h, cap_h)
+    if w < 1 or h < 2:
+        return []
+    seen: set[tuple[int, int]] = set()
+    out: list[tuple[int, int]] = []
+    for sw, sh in (
+        [(w, h)]
+        + [(w, hh) for hh in range(h, 1, -1)]
+        + [(ww, h) for ww in range(w, 0, -1)]
+        + [(ww, hh) for ww in range(w, 0, -1) for hh in range(h, 1, -1)]
+    ):
+        key = (sw, sh)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def _fit_chunk_in_hole(
     chunk: Chunk,
+    hole: CellRect,
     geom: PageGeom,
     types: TypeSpec,
     page_i: int,
     max_h: int,
-) -> _Attempt | None:
-    if page_i == 0:
-        if chunk.part > 0:
-            # 头版只放导语,续文下转内页——华尔街日报也是这样
-            return None
-        if chunk.article.section != "headline":
-            return None
-    area = estimate_area_cells(chunk, geom, types, max_h)
-    prefer = prefer_for(chunk.article.section, chunk.part)
-    cap_w, cap_h = first_chunk_cap(chunk, max_h, geom.cols, page_i=page_i)
-    area = min(area, cap_w * cap_h)
-    # 一栏块合法,但只能矮(短讯/续尾):长腿细栏会像博客侧栏,不像报纸。
-    min_w, min_h = (2, 4) if chunk.article.role == "index" else (1, 3)
-    if chunk.part > 0:
-        min_h = 2
-    interior_open = (
-        page_i > 0
-        and chunk.part == 0
-        and chunk.article.role == "story"
-        and not chunk.article.empty
-    )
-    if interior_open:
-        # 内页开篇必须拿到像样的一块,否则等下一版;禁止在续文缝里开个头再下转。
-        min_w, min_h = 3, 7
-    shapes = candidate_shapes(
-        area, max_w=cap_w, max_h=cap_h, prefer=prefer, min_h=min_h
-    )
-    if chunk.article.empty:
-        min_w, min_h = 2, 2
-        shapes = [(min(6, cap_w), 2), (3, 2), (2, 2)] + shapes
-        interior_open = False
-    # 降级阶梯:内容区被目录栏挤窄后,头条的 6×4 放不进去;按面积缩档
-    # 找 5×4 / 4×4 之类的次大形状,而不是一步跌到 1 栏火柴梗。
-    if not interior_open:
-        for decay in (0.8, 0.62, 0.5):
-            sub_area = max(min_w * min_h, int(area * decay))
-            if sub_area < area:
-                shapes.extend(
-                    candidate_shapes(
-                        sub_area, max_w=cap_w, max_h=cap_h, prefer=prefer, min_h=min_h
-                    )
-                )
-        shapes.append((cap_w, min(cap_h, max(4, math.ceil(area / max(cap_w, 1))))))
-        shapes.append((min(min_w, cap_w), min(min_h, cap_h)))
-    else:
-        shapes.append((cap_w, cap_h))
-        shapes.append((min(cap_w, 4), min(cap_h, 8)))
+) -> tuple[int, int, int, CellRect, PlacedBlock, Chunk | None] | None:
+    """看这篇能不能进这个洞。不占格。
 
-    for w, h in shapes:
-        if w > cap_w or h > cap_h or w < min_w or h < 2 or (w == 1 and h > 4):
+    返回 (优先级, 次键, 第三键, cell, block, rest)。
+    续文写得完就收块;写不完才铺满。短稿能写完就进碎洞。
+    """
+    if page_i == 0:
+        if chunk.part > 0 or chunk.article.section != "headline":
+            return None
+    cap_w, cap_h = first_chunk_cap(chunk, max_h, geom.cols, page_i=page_i)
+    best: tuple[int, int, int, CellRect, PlacedBlock, Chunk | None] | None = None
+    for sw, sh in _hole_shapes(hole, cap_w, cap_h):
+        if sw < 2 and not chunk.article.empty:
             continue
-        cell = packer.place(w, h)
-        if cell is None:
+        if chunk.article.role == "index" and sw < 2:
             continue
+        if not chunk.article.empty and sh < 2:
+            continue
+        cell = CellRect(hole.c, hole.r, sw, sh)
         block, rest = _materialize(chunk, cell, geom, types, page_i)
-        return _Attempt(block, rest, chunk)
-    return None
+        finishes = rest is None
+        is_cont = chunk.part > 0
+        is_filler = chunk.article.empty or chunk.article.role == "index"
+        if (
+            not is_cont
+            and not is_filler
+            and chunk.article.role == "story"
+            and page_i > 0
+            and not finishes
+            and (sw * sh < 8 or sh < 3)
+        ):
+            # 碎洞只收能一版写完的短稿;满宽两行(4×2)以上才允许开篇下转。
+            continue
+        waste = hole.area - sw * sh
+        if is_cont:
+            if finishes:
+                # 写得完就收块,但别收成 4×2 横条压在下一篇头顶。
+                rank = (0, 0, sw * sh + (80 if sh < 3 else 0))
+            else:
+                rank = (0, 1, waste)
+        elif chunk.article.empty:
+            rank = (3, 0, waste)
+        elif finishes:
+            rank = (1, 0, sw * sh)
+        else:
+            rank = (2, 0, waste)
+        cand = (*rank, cell, block, rest)
+        if best is None or cand[:3] < best[:3]:
+            best = cand
+    return best
 
 
 def _place_pass(
-    packer: MaxRects,
+    packer: Skyline,
     work: list[Chunk],
     attempts: list[_Attempt],
     geom: PageGeom,
@@ -452,37 +465,50 @@ def _place_pass(
     *,
     chain: bool = False,
 ) -> list[Chunk]:
-    """一轮「能放就放」,直到没有进展。chain=True 时续文尾巴当场接着排(内页)。
+    """hole-first:对着最大空矩形派稿。续文写得完就收块;短稿能写完就进碎洞。
 
-    同一篇稿每版至多一块:长尾巴当场连排会把一篇文章在同一版撕成
-    一堆碎块——报纸不这么干,续文等下一版拿一块大的。
+    同一篇稿每版至多一块。
     """
+    del chain
     progressed = True
     while progressed:
         progressed = False
-        nxt: list[Chunk] = []
         placed = {a.block.article_id for a in attempts}
-        for ch in work:
-            if ch.article.id in placed:
-                nxt.append(ch)
+        holes = sorted(
+            packer.free_rects(), key=lambda h: (-h.area, h.r, h.c)
+        )
+        for hole in holes:
+            if hole.area < 2:
                 continue
-            attempt = _try_place(packer, ch, geom, types, page_i, max_h)
-            if attempt is None:
-                nxt.append(ch)
+            best: tuple[int, int, int, int, CellRect, PlacedBlock, Chunk | None, Chunk] | None = None
+            for i, ch in enumerate(work):
+                if ch.article.id in placed:
+                    continue
+                fit = _fit_chunk_in_hole(
+                    ch, hole, geom, types, page_i, max_h
+                )
+                if fit is None:
+                    continue
+                pri, tie, waste, cell, block, rest = fit
+                cand = (pri, tie, waste, i, cell, block, rest, ch)
+                if best is None or cand[:4] < best[:4]:
+                    best = cand
+            if best is None:
                 continue
-            attempts.append(attempt)
+            _pri, _tie, _w, _i, cell, block, rest, ch = best
+            packer.occupy(cell.c, cell.r, cell.w, cell.h)
+            attempts.append(_Attempt(block, rest, ch))
+            work = [c for c in work if c.article.id != ch.article.id]
             progressed = True
-            if chain and attempt.rest is not None:
-                nxt.append(attempt.rest)
-        work = nxt
+            break
     return work
 
 
 def _rebuild_packer(
     geom: PageGeom, reserved: list[CellRect], attempts: list[_Attempt]
-) -> MaxRects:
-    """收缩后空格变了,按最新格子重建自由区域。一页块数很少,重建最便宜。"""
-    p = MaxRects(geom.cols, geom.rows)
+) -> Skyline:
+    """收缩后空格变了,按最新格子重建天际线。"""
+    p = Skyline(geom.cols, geom.rows)
     for cell in reserved:
         p.occupy(cell.c, cell.r, cell.w, cell.h)
     for att in attempts:
@@ -492,7 +518,7 @@ def _rebuild_packer(
 
 
 def _compact_attempts(
-    packer: MaxRects,
+    packer: Skyline,
     attempts: list[_Attempt],
     work: list[Chunk],
     geom: PageGeom,
@@ -502,7 +528,7 @@ def _compact_attempts(
     *,
     reserved: list[CellRect],
     chain: bool = False,
-) -> tuple[MaxRects, list[Chunk], bool]:
+) -> tuple[Skyline, list[Chunk], bool]:
     """装完全文的块把虚占的格子吐出来(缩 1 栏宽或 1 行高,直到再缩就掉字)。
 
     只动「字已装完」的块:续文还在或已被收走的块,缩了会把已排版的尾巴
@@ -517,7 +543,7 @@ def _compact_attempts(
             continue
         if ch.body != att.source.body or att.source.article.empty:
             continue
-        min_w = 1 if att.source.article.role == "story" else 2
+        min_w = 2
         while True:
             cell = att.block.cells
             shrunk: PlacedBlock | None = None
@@ -530,7 +556,7 @@ def _compact_attempts(
                 # 别缩出又细又长的条:h > 2w 的块像博客侧栏,裂出的缝也拼不回大洞
                 if (
                     trial.w < min_w
-                    or (trial.w == 1 and trial.h > 4)
+                    or (trial.w == 1 and trial.h > 3)
                     or trial.h < 2
                     or trial.c < 0
                     or trial.r < 0
@@ -550,18 +576,25 @@ def _compact_attempts(
                 break
             if shrunk is None:
                 break
+            prev = att.block
+            n_before = len(attempts)
             att.block = shrunk
-            changed = True
             packer = _rebuild_packer(geom, reserved, attempts)
             if work:
                 work = _place_pass(
                     packer, work, attempts, geom, types, page_i, max_h, chain=chain
                 )
+            if len(attempts) == n_before:
+                # 吐出的缝没人进,缩回去,别留 1 栏空条。
+                att.block = prev
+                packer = _rebuild_packer(geom, reserved, attempts)
+                break
+            changed = True
     return packer, work, changed
 
 
 def _grow_into_holes(
-    packer: MaxRects,
+    packer: Skyline,
     attempts: list[_Attempt],
     geom: PageGeom,
     types: TypeSpec,
@@ -578,16 +611,30 @@ def _grow_into_holes(
         guard += 1
         changed = False
         for att in attempts:
-            # 没装完的稿才值得长:多一格就能多印几行。已经装完的稿(包括条目
-            # 印完的 index)再拉高,只会把几句话均摊进更多栏、拉出一块空白框。
-            if att.rest is None:
-                continue
             cell = att.block.cells
             cap_w, cap_h = first_chunk_cap(
                 att.source, max_h, geom.cols, page_i=page_i
             )
             grew: CellRect | None = None
-            if (
+            if att.rest is None:
+                extra_w = 0
+                while packer.region_free(
+                    cell.c + cell.w + extra_w, cell.r, 1, cell.h
+                ):
+                    extra_w += 1
+                extra_h = 0
+                while packer.region_free(
+                    cell.c, cell.r + cell.h + extra_h, cell.w, 1
+                ):
+                    extra_h += 1
+                # 邻格拼不出下一篇(面积 < 8)就吞掉,别留 4×2 空条。
+                if extra_w and extra_w * cell.h < 8 and cell.w < cap_w:
+                    packer.occupy(cell.c + cell.w, cell.r, 1, cell.h)
+                    grew = CellRect(cell.c, cell.r, cell.w + 1, cell.h)
+                elif extra_h and extra_h * cell.w < 8 and cell.h < cap_h:
+                    packer.occupy(cell.c, cell.r + cell.h, cell.w, 1)
+                    grew = CellRect(cell.c, cell.r, cell.w, cell.h + 1)
+            elif (
                 cell.w < cap_w
                 and packer.region_free(cell.c + cell.w, cell.r, 1, cell.h)
             ):
@@ -645,7 +692,9 @@ def _materialize(
     overflow_imgs = list(plan.overflow_images)
     obstacles = wrap_obstacles(plan.well, plan.image_boxes)
 
-    n_cols = column_count(text_rect.w) if text_rect else 1
+    n_cols = column_count(text_rect.w, mm.h) if text_rect else 1
+    if text_rect and text_rect.w >= 80:
+        n_cols = max(n_cols, 2)
     jump_reserve = 4.2
     table_flow = has_md_table(chunk.body) and bool(obstacles)
     if table_flow:
@@ -653,7 +702,7 @@ def _materialize(
         y0 = max(o.bottom for o in obstacles) + 1.2
         y0 = min(y0, text_rect.bottom)
         flow = MmRect(text_rect.x, y0, text_rect.w, max(0.0, text_rect.bottom - y0))
-        n_cols = column_count(flow.w) if flow.w > 1 else 1
+        n_cols = column_count(flow.w, mm.h) if flow.w > 1 else 1
         fit_h = max(0.0, flow.h - jump_reserve)
         n_fit = chars_that_fit(chunk.body, flow.w, fit_h, types.body_pt, types.line_ratio)
         text_rect = flow
@@ -676,7 +725,8 @@ def _materialize(
     if tail and len(tail) < 48:
         head, tail = chunk.body, ""
 
-    # 字少就收栏:有图时不能把图所占的栏收掉,否则绕排对不齐。
+    # 字少就少切栏,但仍铺满原正文区:裁掉右边等于在稿框里留一条空列。
+    # 宽块至少两栏,避免 209mm 导语收成一条通栏博客。
     if text_rect and head and not plan.image_boxes:
         cols = column_rects(text_rect, n_cols)
         col_w = cols[0].w
@@ -684,15 +734,11 @@ def _materialize(
         fit_h = max(0.0, text_rect.h - jump_reserve)
         per = max(1, int(fit_h / line_height_mm(types.body_pt, types.line_ratio)))
         n_need = max(1, math.ceil(n_lines / per)) if n_lines else 1
+        floor = 2 if text_rect.w >= 80 else 1
+        n_cols = max(n_cols, floor)
         if n_need < n_cols:
-            n_cols = n_need
-            used = cols[:n_cols]
-            text_rect = MmRect(
-                used[0].x,
-                used[0].y,
-                used[-1].right - used[0].x,
-                used[0].h,
-            )
+            n_cols = max(n_need, floor)
+            n_cols = min(n_cols, len(cols))
 
     truncated = False
     rest: Chunk | None = None

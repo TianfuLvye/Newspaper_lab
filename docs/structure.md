@@ -131,7 +131,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 | `hotlist.py` | `02_hotlist.md` |
 | `subscriptions.py` | `06_subscribe.md` + `items/*.md` |
 | `health.py` | `99_health.md` |
-| `layout/` | A3 6×14 矩阵装箱、分页、1–3 图井 |
+| `layout/` | A3 4×8 矩阵装箱、分页、1–3 图井 |
 | `newspaper.py` | `digest.html` / `digest.pdf` / `layout.json` |
 | `sections/` | 调试用碎片；`*.md` 被 gitignore |
 
