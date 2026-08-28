@@ -281,6 +281,7 @@ def test_text_cleanup_and_filters():
         display_title,
         expand_zhihu_daily_title,
         html_to_text,
+        is_title_longer_than_body,
         is_zhihu_skip_title,
         newspaper_body,
         readable_body,
@@ -327,6 +328,29 @@ def test_text_cleanup_and_filters():
     paper = newspaper_body(daily)
     check("newspaper_body leads with bold catalog", paper.startswith("**") and "郭兰英" in paper, paper[:80])
     check("readable_body stays the article", not readable_body(daily).startswith("**"))
+
+    ad_title = (
+        "朋友们，「狂暴」的8月终于要结束了。这个夏天，你有没有哪一个瞬间，"
+        "想永远按下暂停键？我们想用一本「时」的合集，把这些时刻留下。"
+        "征集已经收到1000+份投稿。"
+    )
+    pitch = Item(
+        Source.WECHAT_MP,
+        Kind.ARTICLE,
+        ad_title,
+        "https://mp.weixin.qq.com/s/moment",
+        collector="rss_人物",
+    )
+    article = Item(
+        Source.WECHAT_MP,
+        Kind.ARTICLE,
+        "库里没有捷径",
+        "https://mp.weixin.qq.com/s/keep",
+        content="正经公众号长文。" * 20,
+        collector="rss_人物",
+    )
+    check("long title empty body is ad", is_title_longer_than_body(pitch))
+    check("short title long body keeps", not is_title_longer_than_body(article))
 
     xml = """<?xml version="1.0" encoding="utf-8"?>
     <rss version="2.0">
@@ -499,6 +523,7 @@ def test_title_exclude_regex_drops_ads():
         check("exclude is title-only", "标题干净的一篇" in titles, str(titles))
 
     from console.yaml_io import _feed_row
+    from core.text import is_title_longer_than_body
     from pipeline.rank import is_rank_candidate
 
     row = _feed_row(
@@ -556,6 +581,32 @@ def test_title_exclude_regex_drops_ads():
             titles = [i.title for i in got]
             check("subscribe drops ad", "今日最佳：已经进过库的广告" not in titles, str(titles))
             check("subscribe keeps article", "已经进过库的正经稿" in titles, str(titles))
+
+            pitch_title = (
+                "朋友们，「狂暴」的8月终于要结束了。这个夏天，你有没有哪一个瞬间，"
+                "想永远按下暂停键？我们想用一本「时」的合集，把这些时刻留下。"
+            )
+            pitch = Item(
+                Source.WECHAT_MP,
+                Kind.ARTICLE,
+                pitch_title,
+                "https://mp.weixin.qq.com/s/moment-ad",
+                collector=col,
+                published_at=now,
+                fetched_at=now,
+            )
+            check("title>body helper flags pitch", is_title_longer_than_body(pitch))
+            check("rank drops title>body", is_rank_candidate(pitch, title_exclude=pats) is False)
+            store.upsert_items([pitch])
+            got2 = collect_subscription_items(
+                store,
+                window_hours=48,
+                collector_names={col},
+                feeds=feeds,
+            )
+            titles2 = [i.title for i in got2]
+            check("subscribe drops title>body", pitch_title not in titles2, str(titles2))
+            check("subscribe still keeps article", "已经进过库的正经稿" in titles2, str(titles2))
         finally:
             store.close()
 

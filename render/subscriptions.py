@@ -12,6 +12,7 @@ from core.store import Store
 from core.text import (
     display_title,
     format_dateline,
+    is_title_longer_than_body,
     is_zhihu_activity_item,
     item_published_at,
     newspaper_body,
@@ -100,7 +101,8 @@ def collect_subscription_items(
     """取窗口内 RSS 条目。默认每源最多 5 条、有正文优先、源与源轮询。
 
     窗口看刊出时间(published_at),不是抓取时间,避免旧稿因未读积压混进今天。
-    视频没有转写,不占订阅版位。知乎赞同/动态、标题排除(广告槽)也不进报。
+    视频没有转写,不占订阅版位。知乎赞同/动态、标题排除(广告槽)、
+    标题字数大于正文的征稿/软广也不进报。
     """
     names = collector_names if collector_names is not None else _rss_collector_names(feeds)
     now = datetime.now(timezone.utc)
@@ -119,6 +121,8 @@ def collect_subscription_items(
         if is_zhihu_activity_item(it):
             continue
         if is_excluded_feed_title(it, patterns=excludes):
+            continue
+        if is_title_longer_than_body(it):
             continue
         t = item_published_at(it)
         if t is not None:

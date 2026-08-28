@@ -84,7 +84,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 | `base.py` | `Collector` 契约；`run_collector` 失败隔离，不让一张网拖死整次 collect |
 | `registry.py` | 读 `sources.yaml`，实例化热榜 + RSS +（可选）小红书 |
 | `settings.py` | `settings.toml` + yaml 加载 |
-| `text.py` | HTML→段落、知乎文末裁剪、日报标题展开、出报用刊出时间 |
+| `text.py` | HTML→段落、知乎文末裁剪、日报标题展开、标题长于正文当广告、出报用刊出时间 |
 
 改 `schema.py` 等于改全系统接口。
 

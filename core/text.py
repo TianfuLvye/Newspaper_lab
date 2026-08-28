@@ -126,6 +126,16 @@ def display_title(it) -> str:
     return html_to_text(getattr(it, "title", "") or "", single_line=True)
 
 
+def char_count(text: str) -> int:
+    """字数:去掉空白后的字符数。"""
+    return len(re.sub(r"\s+", "", text or ""))
+
+
+def is_title_longer_than_body(it) -> bool:
+    """标题比正文长则当广告。征稿/软广常把整段话写进标题,库里几乎没有正文。"""
+    return char_count(display_title(it)) > char_count(readable_body(it))
+
+
 def newspaper_body(it) -> str:
     """出报正文。日报把原来的长目录加粗放在第一段,不改打分用的 readable_body。"""
     body = readable_body(it)

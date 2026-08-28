@@ -19,6 +19,7 @@ from core.store import Store
 from core.text import (
     CST,
     display_title,
+    is_title_longer_than_body,
     is_zhihu_activity_item,
     is_zhihu_daily,
     item_published_at,
@@ -75,6 +76,8 @@ def is_rank_candidate(
     if is_zhihu_activity_item(it):
         return False
     if is_excluded_feed_title(it, patterns=title_exclude):
+        return False
+    if is_title_longer_than_body(it):
         return False
     if it.kind not in SCORE_KINDS:
         return False
