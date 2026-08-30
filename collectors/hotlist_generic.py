@@ -99,7 +99,11 @@ class HotlistCollector(BaseCollector):
         payload = None
         for attempt in range(2):
             try:
-                r = httpx.get(url, timeout=self.settings.dailyhot_timeout)
+                r = httpx.get(
+                    url,
+                    timeout=self.settings.dailyhot_timeout,
+                    trust_env=False,
+                )
                 r.raise_for_status()
                 payload = r.json()
                 break

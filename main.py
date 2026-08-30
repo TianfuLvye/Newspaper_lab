@@ -9,7 +9,7 @@
   uv run main.py enrich --limit 20       # Lab 5 正文抽取 + B 站白名单发现
   uv run main.py transcript BV19d4y1D7n3 # 口播：下载音频 → 火山 STT → 改稿
   uv run main.py render --edition am     # Lab 6/7/8 出一期早报(含 PDF)
-  uv run main.py pdf                     # 对已有 digest 只排版,不重跑打分
+  uv run main.py pdf                     # 对已有期次只排版,不重跑打分
   uv run main.py golden                  # Lab 7 拟合收藏夹画像
   uv run main.py ab --kind am            # Lab 7 热度 vs 打分对照
   uv run main.py feedback --edition DATE-am --n 1 --label 1
@@ -291,7 +291,7 @@ def cmd_console(args: argparse.Namespace) -> int:
 
 
 def cmd_pdf(args: argparse.Namespace) -> int:
-    """对已有一期 Markdown 做 A3 矩阵排版。不打 used_in,不跑采集。"""
+    """对已有一期 Markdown 做 A3 报纸排版。不打 used_in,不跑采集。"""
     from core.settings import load_settings
     from render.newspaper import render_newspaper
 
@@ -323,7 +323,10 @@ def cmd_pdf(args: argparse.Namespace) -> int:
     elif dest.name.endswith("-am"):
         kind = "am"
     result = render_newspaper(dest, kind=kind, pdf=not args.html_only)
-    print(f"edition {result.edition_id} kind={result.kind} pages={result.layout.n_pages}")
+    print(f"edition {result.edition_id} kind={result.kind} pages={result.pages}")
+    if result.unassigned:
+        print(f"unassigned: {', '.join(result.unassigned)}")
+    print(f"wrote {result.articles_path}")
     print(f"wrote {result.html_path}")
     print(f"wrote {result.layout_path}")
     if result.pdf_path:
@@ -460,7 +463,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Lab 5: trafilatura 正文抽取 → items.content。\n"
             "Lab 6: APScheduler 常驻 + 早晚出报 + 系统体检。\n"
             "Lab 7: 收藏夹画像 + 两阶段打分 + 事件折叠 + 反馈。\n"
-            "Lab 8: digest.md → A3 矩阵 HTML/PDF。"
+            "Lab 8: 期次 Markdown → newspaper-layout v0.4 A3 HTML/PDF。"
         ),
         epilog=(
             "Lab 3 快速验收:\n"
@@ -602,10 +605,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_pdf = sub.add_parser(
         "pdf",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        help="把已有 digest 排成 A3 报纸(Lab 8,不标记 used_in)",
+        help="把已有期次排成 A3 报纸(Lab 8,不标记 used_in)",
         description=(
-            "只吃 data/editions/{期号}/ 里的 Markdown,写出 digest.html / digest.pdf / layout.json。\n"
-            "排版调试用这个,不要重跑 collect。"
+            "只吃 data/editions/{期号}/ 里的 Markdown,写出 articles.json / digest.html / digest.pdf / layout.json。\n"
+            "排版调试用这个,不要重跑 collect。需要本机 Chromium。"
         ),
         epilog=(
             "示例:\n"
@@ -679,7 +682,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="启动常驻调度(Lab 6)",
         description=(
             "APScheduler:热榜 30min / RSS 60min / 定向与正文 6h;\n"
-            "每天 07:00 早报、18:00 晚报(Asia/Shanghai)。\n"
+            "每天 07:00 早报、19:00 晚报(Asia/Shanghai)。\n"
             "Ctrl-C 退出。手动出报请用 render --edition,不必等 cron。"
         ),
     )

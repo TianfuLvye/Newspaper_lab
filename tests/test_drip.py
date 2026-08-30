@@ -1,7 +1,10 @@
 """滴灌游标与口播栏见报。不访问外网。"""
 from __future__ import annotations
 
+import os
 import json
+
+os.environ.setdefault("FISHNET_SKIP_LAYOUT", "1")
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path

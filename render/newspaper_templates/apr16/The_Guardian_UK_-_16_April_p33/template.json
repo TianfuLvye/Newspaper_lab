@@ -1,0 +1,61 @@
+{
+  "template_version": 1,
+  "template_id": "The_Guardian_UK_-_16_April_p33",
+  "source": {
+    "publication": "",
+    "date": "",
+    "page": 33,
+    "reference_file": "reference.jpg"
+  },
+  "personal_rating": 5,
+  "page": {
+    "type": "interior",
+    "column_count": 5,
+    "content_left": 0.02,
+    "content_right": 0.98,
+    "content_top": 0,
+    "content_bottom": 1
+  },
+  "stories": [
+    {
+      "id": "A",
+      "column_start": 0,
+      "column_span": 5,
+      "top": 0.0258,
+      "bottom": 0.1435,
+      "role": "brief",
+      "image_style": "large",
+      "image_position": "left",
+      "headline_weight": "very_large"
+    },
+    {
+      "id": "B",
+      "column_start": 0,
+      "column_span": 4,
+      "top": 0.1522,
+      "bottom": 0.7918,
+      "role": "normal",
+      "image_style": "large",
+      "image_position": "right",
+      "headline_weight": "large"
+    },
+    {
+      "id": "C",
+      "column_start": 4,
+      "column_span": 1,
+      "top": 0.148,
+      "bottom": 0.7815,
+      "role": "brief",
+      "headline_weight": "small"
+    },
+    {
+      "id": "D",
+      "column_start": 0,
+      "column_span": 5,
+      "top": 0.7959,
+      "bottom": 0.9743,
+      "role": "normal",
+      "headline_weight": "medium"
+    }
+  ]
+}

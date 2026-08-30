@@ -1,107 +1,66 @@
-# Lab 8 · 渲染:Markdown → 一份 A3 矩阵报纸
+# Lab 8 · 渲染:期次 Markdown → newspaper-layout A3 报纸
 
-> **范围**: 把已有 `digest.md` / `01_`…`99_` 排成早餐能读的 PDF。不回头改采集和打分。  
-> **决策**: 不用手册 8.1 的四种「流式」方案当版心,自研 A3 网格矩形装箱。见 [ADR-007](./adr/007-newspaper-grid.md)。
+> **范围**: 把已有 `01_`…`99_` / `digest.md` 排成早餐能读的 HTML/PDF。不回头改采集和打分。  
+> **决策**: 版心用 [newspaper-layout v0.4](https://github.com/TianfuLvye/newspaper-layout)，不再自研 4×8 网格。见 [ADR-009](./adr/009-newspaper-layout-v04.md)。旧网格决策见已 superseded 的 [ADR-007](./adr/007-newspaper-grid.md)。
 
 ## 本 Lab 完成了什么
 
-1. **A3 矩阵排版**: 297×420 mm 切成 4 栏 × 8 行。每篇文章外框是矩形;稿内配图按栏对齐绕排,不做 Word 那种行内折行。
-2. **过长分页**: 头版只放 headline 导语,续文打散到更靠后的版(「下转第 N 版 / 上接第 M 版」)。内页稿尽量一版装完;预估超一版的长稿整篇放到报纸最后。全文不截断(字符安全阀除外)。
-3. **配图**: `enrich/images.py` 从微信 / 华尔街见闻 / 知乎收候选,出报时丢掉表情包尺寸,再用 Visual 模型看像素挑 1–3 张下载到 `images/`。`render/layout/images.py` 切图井;没有文件就不切框。
-4. **双输出**: `digest.html`(手机扫读 + 浏览器打印兜底)和 `digest.pdf`(归档)。中间层 Markdown 不动。
-5. **今日综述**: 头版报头里约 200 字。有 `FISHNET_LLM_API_KEY` 调一次 LLM,否则抽头版首句。
-6. **CLI**: `uv run main.py render --edition am` 出报时顺带排版;`uv run main.py pdf --edition 2026-08-26-am` 只排版、不打 `used_in`。
+1. **期次 → articles.json**: `render/edition_to_articles.py` 读分版 Markdown（订阅优先 `items/*.md`），去掉打分/反馈命令，补上 `kind` / `priority` / 图宽高。
+2. **模板拼版**: Guardian 模板在 `render/newspaper_templates/`。Chromium 精确量字 + 真实续页（下转/上接）。
+3. **双输出**: `digest.html` 是权威版面；`digest.pdf` 是同一份 HTML 的 A3 打印件。
+4. **今日综述**: 仍由 `render/lede.py` 写 `00_lede.md`，再作为一篇 brief 进优化器。
+5. **CLI**: `uv run main.py render --edition am` 出报时顺带排版；`uv run main.py pdf --edition 2026-08-28-am` 只排版、不打 `used_in`。
 
-
+本机需要 Chromium：`uv run playwright install chromium`，或设置 `CHROMIUM_PATH`。测量缓存在 `data/.cache/newspaper-measure.json`。出刊单测设 `FISHNET_SKIP_LAYOUT=1`，只写 `articles.json`、不跑优化器。
 
 ## 对应 Lab 原则 / 验收点
 
-
-| 验收 / 原则               | 落点                                                                                                         |
-| --------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 中文无乱码、标点正常            | 系统宋体/黑体 TTF 注册进 reportlab,自写 CJK 折行                                                                        |
-| ≥5 个版面                | 解析 `01_headline` / `02_hotlist` / `03_deepread` / `04_oral` / `06_subscribe` / `07_critical` / `99_health` |
-| 早晚报有实质差异              | 早报字更密、热榜靠前;晚报字略大、深度靠前;报头文案不同                                                                               |
-| 无孤行/断表                | 续页在句号/段末切开;剩余 <48 字并入本格                                                                                    |
-| digest.md → PDF < 30s | 装箱是整数格子,量字+reportlab 通常几秒                                                                                  |
-| 空版面比错误更伤              | 无数据栏目印占位块,不拿低分稿填                                                                                           |
-
-
-
+| 验收 / 原则 | 落点 |
+|---|---|
+| 中文无乱码、标点正常 | v0.4 与最终 HTML 共用同一套 CSS；Chromium 量字 |
+| ≥5 个版面 | 解析 `01_headline` / `02_hotlist` / `03_deepread` / `04_oral` / `06_subscribe` / `07_critical` / `99_health` |
+| 早晚报有实质差异 | 报头文案不同；稿件 `id` 前缀 `am` / `pm` |
+| 过长分页 | v0.4 `DOMSplitter` + `ContinuationAllocator`，印「下转第 X 版 / 上接第 X 版」 |
+| 空版面比错误更伤 | 无数据栏目不硬塞低分稿；体检 `kind=system_report` 压到报纸末尾 |
 
 ## 模块与函数设计笔记
 
+### `render/edition_to_articles.py` · `edition_to_articles`
 
-
-### `render/layout/pack.py` · `Skyline`
-
-- **目的**: 格子占用 + 天际线轮廓;`free_rects()` 给出极大空矩形。
-- **为什么**: 排版是 hole-first——对着最大空矩形派稿,续文按洞变形,短稿能写完就进碎洞。天际线 `place` 贴轮廓往下堆,留给货架算法。
-- **刻意不做**: 不引入 bin-packing 库。4×8 格子穷举空矩形够快。
-
-
-
-### `render/layout/images.py` · `plan_image_slots`
-
-- **目的**: 文章矩形内切一块图井,宽度咬在正文栏格上;正文区仍是整块矩形。
-- **栏对齐绕排**: 横图居中占整数栏,邻栏从标题下排字,图所在栏从图下接。量字走 `punch_columns`,每栏剩余仍是矩形。稿件外框禁止 L 形。
-- **1/2/3 张**: 横图靠上咬栏、竖图靠左咬栏、两张并排铺满、三张走英雄+两小图;短边小于 28mm 改 cover,再小就 overflow 到续页。
-- **真实文件**: Markdown `![说明](images/xxx.jpg)` 相对期次目录;PDF 按这个路径 `drawImage`,HTML 同源相对路径。候选来自 `Item.images`,出报时才下载。
-
-
-
-### `render/layout/engine.py` · `layout_edition`
-
-- **目的**: 文章 → 一串 `PlacedBlock`(页码 + 格子 + mm)。
-- **头版**: 顶两行锁给报头+综述;左栏 Inside;只装 headline 导语,续文不准留在第 1 版。
-- **续文**: 停放后每内页最多接 1 条,先于其它稿放置,去向打散。
-- **内页**: 开篇帽子是整页;能一版装完的先排,超一版的置后。碎洞只收能写完的短稿。
-- **稀薄期**: 3 篇以下把体检提前,报头写警告。
-
-
+- **目的**: 一期目录 → v0.4 `Article` JSON。
+- **来源**: 分版文件优先；订阅正文优先用 `items/*.md`；只有 `digest.md` 时按 H1 栏目回退。
+- **kind**: health → `system_report`；critical 长文 → `report`；综述/热榜目录 → `brief`；其余按字数 brief/normal/long。
+- **priority**: headline 0.97 … health 0.18，驱动头版 lead 与末页报告。
 
 ### `render/newspaper.py` · `render_newspaper`
 
-- **目的**: 一期目录 → `layout.json` + `digest.html` + `digest.pdf`。
-- **为什么 PDF 失败只警告**: 出报的契约仍是 Markdown;`used_in` 已经打上。HTML 还能用浏览器印。
+- **目的**: 写 `00_lede.md` → `articles.json` → 调 v0.4 optimize-render → `digest.html` / `layout.json` / `digest.pdf`。
+- **为什么 PDF 失败只警告**: 出报契约仍是 Markdown；`used_in` 已经打上。HTML 还能用浏览器印。
 
+### `render/parse_edition.py` / `render/lede.py`
 
+- 内容解析和综述仍在本仓库。格子类型已从 `render/layout/model.py` 挪到 `render/edition_model.py`。
 
 ## 本地怎么验收
 
 ```bash
 uv sync
-uv run python -m tests.test_lab8
-uv run python -m tests.test_all          # 旧 Lab 回归;出报会多写 pdf
+uv run playwright install chromium
+uv run python -m tests.test_lab8          # 转换器 + 模板加载,不跑全量拼版
+uv run python -m tests.test_all
 
 # 只排版,不重跑打分、不打 used_in
-uv run main.py pdf --edition 2026-08-26-am
-open data/editions/2026-08-26-am/digest.pdf
-open data/editions/2026-08-26-am/digest.html
+uv run main.py pdf --edition 2026-08-28-am
+open data/editions/2026-08-28-am/digest.html
 ```
-
-
 
 ## 思考题备忘
 
-1. **HTML 也出**: 早餐多半在手机上看。HTML 是扫读格式,PDF 是归档/打印。分层正是 Markdown 中间层的回报。
-2. **只有 5 条**: 不凑数。合并留白、体检提前、占位块写「今日无数据」。假装满版比空版更糟。
-
-
-
-## 美术(对照华尔街日报)
-
-- 白底;稿件之间用细竖线/横线,不画圆角卡片。
-- 正文在稿件矩形里再切竖栏(约 41mm 一栏),两端对齐。题下印刊出时间:今天/昨天写到分钟,更早只写年月日。
-- 头版标题显著加大;报头是黑字刊名 + 双细线,不是色块。
-- 头版页底通栏 **INSIDE** 条,提示内页标题和页码。右下角小盒会把 F02/F03 撕出一栏空洞,所以改成横条。
-- 头版只放 headline 导语,续文下转内页(去向打散),不在头版碎格里续摊;其它栏目从第 2 版起尽量整篇装进一版。
-
-
+1. **HTML 也出**: 早餐多半在手机上看。HTML 是扫读和权威版面，PDF 是归档/打印。
+2. **只有 5 条**: 不凑数。空栏目不进 `articles.json`，体检仍见报。
 
 ## 留给下一 Lab 的接口
 
 - `digest.pdf` / `digest.html` 是 Lab 9 邮件附件和正文的输入。
-- `layout.json` 给调试,不必进 git。
+- `articles.json` / `layout.json` 给调试，不必进 git。
 - 推送仍是 `main.py push` 占位。
-

@@ -1,0 +1,19 @@
+{
+  "project_version": 1,
+  "source_pdf": "The Guardian UK - 16 April.pdf",
+  "global": {
+    "publication": "",
+    "date": "",
+    "prefix": "The_Guardian_UK_-_16_April"
+  },
+  "annotated_pages": [
+    3,
+    6,
+    7,
+    9,
+    10,
+    29,
+    33,
+    39
+  ]
+}

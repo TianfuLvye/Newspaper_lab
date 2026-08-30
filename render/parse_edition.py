@@ -5,7 +5,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from render.layout.model import Article, ImageSpec
+from render.edition_model import Article, ImageSpec
 
 _SECTION_FILES: list[tuple[str, str, str, str]] = [
     ("01_headline.md", "headline", "头版", "story"),
@@ -55,32 +55,30 @@ def parse_edition_dir(edition_dir: Path) -> tuple[list[Article], EditionMeta]:
     edition_dir = Path(edition_dir)
     meta = _meta_from_digest(edition_dir)
     articles: list[Article] = []
+    found_section_file = False
     for fname, section, kicker, role in _SECTION_FILES:
         path = edition_dir / fname
         if not path.exists():
-            articles.append(
-                Article(
-                    id=f"{section}-missing",
-                    section=section,
-                    role="placeholder",
-                    title=f"{kicker}暂缺",
-                    kicker=kicker,
-                    body="本栏目今日无数据。",
-                    empty=True,
-                    priority=90,
-                    max_chars=200,
-                    max_pages=1,
-                )
-            )
             continue
+        found_section_file = True
         text = path.read_text(encoding="utf-8")
-        articles.extend(_parse_section(text, section, kicker, role, base=edition_dir))
-    if not any(a.section == "headline" for a in articles):
-        # 只有 digest.md 的退化路径
+        parsed = _parse_section(text, section, kicker, role, base=edition_dir)
+        for art in parsed:
+            if not art.source:
+                art.source = fname
+        articles.extend(parsed)
+    if not found_section_file:
         digest = edition_dir / "digest.md"
         if digest.exists():
-            articles = _parse_digest_fallback(digest.read_text(encoding="utf-8"))
-            meta = _meta_from_text(digest.read_text(encoding="utf-8"), fallback=edition_dir.name)
+            articles = _parse_digest_fallback(
+                digest.read_text(encoding="utf-8"), base=edition_dir
+            )
+            for art in articles:
+                if not art.source:
+                    art.source = "digest.md"
+            meta = _meta_from_text(
+                digest.read_text(encoding="utf-8"), fallback=edition_dir.name
+            )
     return articles, meta
 
 
@@ -349,7 +347,36 @@ def _image_spec(src: str, alt: str, caption: str, base: Path | None) -> ImageSpe
     return ImageSpec(src=src, alt=alt or "", caption=caption or "", width_px=w, height_px=h)
 
 
-def _parse_digest_fallback(text: str) -> list[Article]:
-    # 极少用:按 # 二级版面再拆 ##
+_DIGEST_SECTIONS: list[tuple[str, str, str, str]] = [
+    ("口播", "oral", "口播", "story"),
+    ("头版", "headline", "头版", "story"),
+    ("深度阅读", "deepread", "深度", "story"),
+    ("今日一问", "critical", "今日一问", "story"),
+    ("今日新上榜", "hotlist", "热榜", "index"),
+    ("订阅更新", "subscribe", "订阅", "story"),
+    ("系统体检", "health", "体检", "index"),
+]
+
+
+def _parse_digest_fallback(text: str, *, base: Path | None = None) -> list[Article]:
+    """只有 digest.md、没有分版文件时按 H1 栏目再拆 ##。"""
     articles: list[Article] = []
+    seen: set[str] = set()
+    chunks = re.split(r"(?m)^# (?!#)", text)
+    for chunk in chunks[1:]:
+        first, _, rest = chunk.partition("\n")
+        heading = first.strip()
+        mapped: tuple[str, str, str] | None = None
+        for prefix, section, kicker, role in _DIGEST_SECTIONS:
+            if heading.startswith(prefix):
+                mapped = (section, kicker, role)
+                break
+        if mapped is None:
+            continue
+        section, kicker, role = mapped
+        if section in seen:
+            continue
+        seen.add(section)
+        body = f"# {heading}\n{rest}"
+        articles.extend(_parse_section(body, section, kicker, role, base=base))
     return articles

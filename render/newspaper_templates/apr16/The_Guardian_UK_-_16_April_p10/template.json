@@ -1,0 +1,32 @@
+{
+  "template_version": 1,
+  "template_id": "The_Guardian_UK_-_16_April_p10",
+  "source": {
+    "publication": "",
+    "date": "",
+    "page": 10,
+    "reference_file": "reference.jpg"
+  },
+  "personal_rating": 4,
+  "page": {
+    "type": "interior",
+    "column_count": 5,
+    "content_left": 0.02,
+    "content_right": 0.98,
+    "content_top": 0,
+    "content_bottom": 1
+  },
+  "stories": [
+    {
+      "id": "A",
+      "column_start": 0,
+      "column_span": 5,
+      "top": 0.0851,
+      "bottom": 0.9697,
+      "role": "lead",
+      "image_style": "large",
+      "image_position": "right",
+      "headline_weight": "very_large"
+    }
+  ]
+}

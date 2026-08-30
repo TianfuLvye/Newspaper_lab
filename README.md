@@ -57,7 +57,7 @@ uv run python -m tests.test_transcript # 口播并节打包 / BV 解析 / 下载
 uv run python -m tests.test_drip       # 滴灌游标 / 口播栏见报
 uv run python -m tests.test_lab6       # Lab 6 调度配置 / 出报隔离 / 体检
 uv run python -m tests.test_lab7       # Lab 7 黄金集 / 两阶段 / 折叠 / 反馈 / A/B
-uv run python -m tests.test_lab8       # Lab 8 A3 矩阵排版 / 分页 / 配图算法 / PDF
+uv run python -m tests.test_lab8       # Lab 8 期次 → articles.json / 模板加载
 
 # 长时间稳定性(验收标准:6 小时无崩溃)
 uv run python -m tests.test_lab1_endurance --hours 6
@@ -66,7 +66,7 @@ uv run python -m tests.test_lab1_endurance --hours 6
 uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 ```
 
-依赖:`numpy`、`PyYAML`、`httpx`、`feedparser`、`reportlab` 等(见 `pyproject.toml`)。PDF 中文需要系统字体(macOS 宋体/黑体,Linux Noto CJK)。
+依赖:`numpy`、`PyYAML`、`httpx`、`feedparser`、`newspaper-layout`、`playwright` 等(见 `pyproject.toml`)。排版需要本机 Chromium：`uv run playwright install chromium`，或设置 `CHROMIUM_PATH`。
 
 ## 已实现
 
@@ -104,10 +104,12 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | pipeline/rank.py | 7 | 两阶段召回,接入 produce_edition |
 | pipeline/golden.py | 7 | 黄金集 ≥50、画像拟合 |
 | render/ranked.py | 7 | 头版 / 深度 / 今日一问 |
-| render/layout/* | 8 | A3 矩阵装箱、分页、1–3 图井 |
-| render/newspaper.py | 8 | digest.md → HTML + PDF |
+| render/edition_to_articles.py | 8 | 期次目录 → articles.json |
+| render/newspaper.py | 8 | newspaper-layout v0.4 → HTML + PDF |
+| render/newspaper_templates/ | 8 | Guardian 模板 |
 | docs/adr/006-embed-backend.md | 7 | 不上 chromadb 的理由 |
-| docs/adr/007-newspaper-grid.md | 8 | 为什么不套用 8.1 流式方案 |
+| docs/adr/007-newspaper-grid.md | 8 | 旧网格方案（superseded） |
+| docs/adr/009-newspaper-layout-v04.md | 8 | 为什么换成 v0.4 模板拼版 |
 | docs/adr/008-bilibili-transcript-whitelist.md | — | B 站列 BV；合集滴灌进 04 口播栏 |
 | docs/lab-08-render.md | 8 | 排版设计笔记 |
 

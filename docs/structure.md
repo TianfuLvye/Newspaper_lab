@@ -23,7 +23,7 @@ fishnet-lab/                      ← Cursor 工作区
     ├── collectors/               热榜 / RSS / 小红书定向
     ├── enrich/                   缺正文时再抽
     ├── pipeline/                 关键词、打分、出报、体检
-    ├── render/                   Markdown 版面（还不是 PDF）
+    ├── render/                   栏目 Markdown + newspaper-layout 排版
     ├── scheduler/                APScheduler 常驻
     ├── notify/                   Lab 9 占位（空）
     ├── docs/                     每个 Lab 的设计笔记 + 本文
@@ -63,7 +63,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
                     data/editions/{YYYY-MM-DD-am|pm}/
                                       │
                                       ▼
-                         Lab 8：digest.md → A3 矩阵 PDF/HTML
+                         Lab 8：digest.md → newspaper-layout A3 HTML/PDF
                                       │
                                       ▼
                          Lab 9：邮件 / Telegram（notify/ 仍空）
@@ -131,17 +131,18 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 | `hotlist.py` | `02_hotlist.md` |
 | `subscriptions.py` | `06_subscribe.md` + `items/*.md` |
 | `health.py` | `99_health.md` |
-| `layout/` | A3 4×8 矩阵装箱、分页、1–3 图井 |
-| `newspaper.py` | `digest.html` / `digest.pdf` / `layout.json` |
+| `edition_to_articles.py` | 期次目录 → `articles.json` |
+| `newspaper.py` | v0.4 拼版 → `digest.html` / `digest.pdf` / `layout.json` |
+| `newspaper_templates/` | Guardian 模板（v0.4） |
 | `sections/` | 调试用碎片；`*.md` 被 gitignore |
 
-现在没有 Jinja2 模板。Lab 8 把 `01_`…`99_` 装进 A3 矩阵,写出 `digest.pdf` / `digest.html`。版面号仍是文件名。
+现在没有 Jinja2 模板。Lab 8 把 `01_`…`99_` 转成 `articles.json`，交给 newspaper-layout v0.4 拼 A3 版，写出 `digest.html` / `digest.pdf`。版面号仍是文件名。
 
-注意：`digest.md` 的拼接顺序是 **口播 → 头版 → 深度 → 今日一问 → 热榜 → 订阅 → 体检**。口播栏先写，避免总时限把滴灌稿跳掉。PDF 另有报纸版序:早报热榜靠前,晚报深度靠前。
+注意：`digest.md` 的拼接顺序是 **口播 → 头版 → 深度 → 今日一问 → 热榜 → 订阅 → 体检**。口播栏先写，避免总时限把滴灌稿跳掉。报纸版序由 v0.4 按 `priority` / `kind` 优化（体检压到末尾）。
 
 ### 4.6 `scheduler/` / `notify/`
 
-- `scheduler/run.py`：热榜 30min、RSS 60min、定向与 enrich 6h；07:00 早报 / 18:00 晚报（`Asia/Shanghai`）。jitter + coalesce，避免整点齐发和补跑风暴。
+- `scheduler/run.py`：热榜 30min、RSS 60min、定向与 enrich 6h；07:00 早报 / 19:00 晚报（`Asia/Shanghai`）。jitter + coalesce，避免整点齐发和补跑风暴。
 - `notify/`：空。`main.py push` 是 Lab 9 占位。
 
 ---
@@ -238,7 +239,7 @@ uv run main.py render --edition am
 | `feedback --edition … --n 1 --label 1\|-1` | 7 | 读完打点 |
 | `ab --kind am` | 7 | 热度 vs 打分盲评 |
 | `stats` | 0 | 库规模 |
-| `pdf` | 8 | 已有 digest → A3 HTML/PDF,不打 used_in |
+| `pdf` | 8 | 已有期次 → v0.4 A3 HTML/PDF,不打 used_in |
 | `push` | 9 | 未实现 |
 
 测试：`uv run python -m tests.test_labN`（N=1…8），总冒烟 `tests.test_all`。
@@ -257,7 +258,7 @@ uv run main.py render --edition am
 | 5 正文 | `items.content` | `enrich/extract.py` `enrich/transcript.py` `enrich/oral.py` |
 | 6 调度 | 早晚自动出报 + 体检页 | `scheduler/run.py` `pipeline/edition.py` |
 | 7 个性化 | 头版/深度/今日一问 + Fnn | `pipeline/rank.py` `render/ranked.py` |
-| 8 渲染 | A3 矩阵报纸 PDF/HTML | `render/layout/*` `render/newspaper.py` |
+| 8 渲染 | A3 报纸 PDF/HTML（newspaper-layout v0.4） | `render/edition_to_articles.py` `render/newspaper.py` |
 
 文档索引见 [README.md](./README.md)。
 
@@ -265,22 +266,23 @@ uv run main.py render --edition am
 
 ## 10. Lab 8 接在哪（已写）
 
-手册目标：Markdown → 一份早餐能读完的 PDF。版心是 A3 矩阵,不是 8.1 的流式四方案。细节见 [lab-08-render.md](./lab-08-render.md) 和 [ADR-007](./adr/007-newspaper-grid.md)。
+手册目标：Markdown → 一份早餐能读完的报纸。版心是 newspaper-layout v0.4 模板拼版。细节见 [lab-08-render.md](./lab-08-render.md) 和 [ADR-009](./adr/009-newspaper-layout-v04.md)。
 
 **吃这些，不要回头打 collector：**
 
-- 主输入：分版 `01_`…`99_`(解析文件名,不必拆 digest)
-- 单篇：正文进矩形;头版导语下转,内页尽量一版装完,超长稿置后。不截断(安全阀除外)。
+- 主输入：分版 `01_`…`99_`(解析文件名,不必拆 digest)；订阅可回落 `items/*.md`
+- 单篇：进 `articles.json`，由 v0.4 选模板、量字、下转续页
 - 头版「今日综述」：`render/lede.py`,有 Key 调 LLM,否则抽句
 - 调试：`uv run main.py pdf --edition …`(不打 `used_in`)
 
 ```text
 已有的 *.md
-    → render/layout 装箱(格子 + 分页 + 图井)
+    → articles.json
+    → newspaper-layout optimize-render --exact
     → digest.html + digest.pdf
 ```
 
-空版：某栏目失败时已是「本栏目今日无数据」，PDF 原样印占位块。
+空版：某栏目失败时不硬塞进 `articles.json`。体检仍见报，且被标成 `system_report` 靠后放。
 
 `05_tech` 仍未切版；财经/科技稿混在头版和深度里。口播走 `04_oral.md`。
 

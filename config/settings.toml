@@ -27,7 +27,7 @@ enrich_interval_hours = 6
 enrich_limit = 40
 am_hour = 7
 am_minute = 0
-pm_hour = 18
+pm_hour = 19
 pm_minute = 0
 
 [mediacrawler]

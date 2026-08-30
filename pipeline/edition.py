@@ -380,13 +380,16 @@ def produce_edition(
 
         news = render_newspaper(dest, kind=kind, edition_id=eid)
         log.info(
-            "[%s] pdf=%s html=%s pages=%d t=%.2fs",
+            "[%s] pdf=%s html=%s pages=%d unassigned=%d t=%.2fs",
             eid,
             news.pdf_path,
             news.html_path,
-            news.layout.n_pages,
+            news.pages,
+            len(news.unassigned),
             news.seconds,
         )
+        if news.unassigned:
+            log.info("[%s] unassigned: %s", eid, ",".join(news.unassigned))
         if news.error:
             log.warning("[%s] pdf error: %s", eid, news.error)
     except Exception as e:

@@ -1,7 +1,10 @@
 """Lab 7 验收:黄金集向量化、两阶段召回、事件折叠、A/B、反馈闭环。"""
 from __future__ import annotations
 
+import os
 import json
+
+os.environ.setdefault("FISHNET_SKIP_LAYOUT", "1")
 import sys
 import tempfile
 from datetime import datetime, timedelta, timezone

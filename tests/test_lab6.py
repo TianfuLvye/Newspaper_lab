@@ -1,7 +1,10 @@
 """Lab 6 验收:调度配置、失败隔离出报、used_in、体检页能报出制造的故障。"""
 from __future__ import annotations
 
+import os
 import tempfile
+
+os.environ.setdefault("FISHNET_SKIP_LAYOUT", "1")
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -100,7 +103,7 @@ def test_scheduler_job_config():
     check("am is cron", isinstance(am, CronTrigger))
     check("pm is cron", isinstance(pm, CronTrigger))
     check("am 07:00", "hour='7'" in str(am) and "minute='0'" in str(am), str(am))
-    check("pm 18:00", "hour='18'" in str(pm) and "minute='0'" in str(pm), str(pm))
+    check("pm 19:00", "hour='19'" in str(pm) and "minute='0'" in str(pm), str(pm))
 
     enrich = jobs["enrich"].trigger
     check("enrich interval 6h", enrich.interval == timedelta(hours=6), str(enrich.interval))

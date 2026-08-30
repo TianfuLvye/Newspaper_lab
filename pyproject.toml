@@ -14,11 +14,13 @@ dependencies = [
     "python-dateutil>=2.9.0.post0",
     "pyyaml>=6.0.3",
     "trafilatura>=2.2.0",
-    "reportlab>=4.4.3",
     "pillow>=11.0.0",
     "yt-dlp>=2025.3.31",
     "fastapi>=0.141.1",
     "uvicorn>=0.52.4",
+    "newspaper-layout",
+    "mistune>=3.3.4",
+    "playwright>=1.62.0",
 ]
 
 [dependency-groups]
@@ -30,3 +32,6 @@ dev = [
 [[tool.uv.index]]
 url = "https://pypi.tuna.tsinghua.edu.cn/simple"
 default = true
+
+[tool.uv.sources]
+newspaper-layout = { git = "https://github.com/TianfuLvye/newspaper-layout.git", subdirectory = "newspaper_layout_v0_4_continuation" }

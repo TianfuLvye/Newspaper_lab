@@ -5,7 +5,7 @@
 
 ## 本 Lab 完成了什么
 
-1. **`scheduler/run.py`**: `BlockingScheduler`(Asia/Shanghai)。热榜按 `interval_minutes=30`、RSS=60、定向=360;正文抽取每 6 小时;每天 07:00 早报、18:00 晚报。
+1. **`scheduler/run.py`**: `BlockingScheduler`(Asia/Shanghai)。热榜按 `interval_minutes=30`、RSS=60、定向=360;正文抽取每 6 小时;每天 07:00 早报、19:00 晚报。
 2. **jitter=120 + coalesce + max_instances=1**: 打散整点齐发;错过的任务只补一次。
 3. **`pipeline/edition.py`**: `produce_edition("am"|"pm")` 各版面独立生成。订阅版按源轮询、印正文;每篇另写 `items/*.md` 供离线打开。
 4. **`used_in`**: 上了早报的 hash 标成 `YYYY-MM-DD-am`,晚报候选自动跳过。
@@ -43,7 +43,7 @@
 
 ### `pipeline/edition.py` · `produce_edition`
 
-- **目的**: 「收网」。07:00 / 18:00 以及手动 `--edition` 走同一函数。
+- **目的**: 「收网」。07:00 / 19:00 以及手动 `--edition` 走同一函数。
 - **deadline**: 总时限默认 20 分钟。早报的价值 90% 在准点送到;超时版面改占位,体检页尽量保留。
 - **为什么成功后才 `mark_used`**: 版面失败时条目仍保持未使用,晚报或下次手动还能再出。
 - **调试 `render --section hotlist` 不标记**: 方便反复渲染;只有 `--edition` 才消费 `used_in`。

@@ -1,0 +1,50 @@
+{
+  "template_version": 1,
+  "template_id": "The_Guardian_-_2_Jul_2025_freemagazinespdf_com_p01",
+  "source": {
+    "publication": "",
+    "date": "",
+    "page": 1,
+    "reference_file": "reference.jpg"
+  },
+  "personal_rating": 4,
+  "page": {
+    "type": "front",
+    "column_count": 5,
+    "content_left": 0.02,
+    "content_right": 0.986,
+    "content_top": 0,
+    "content_bottom": 1
+  },
+  "stories": [
+    {
+      "id": "A",
+      "column_start": 0,
+      "column_span": 5,
+      "top": 0.2657,
+      "bottom": 0.5469,
+      "role": "lead",
+      "headline_weight": "very_large"
+    },
+    {
+      "id": "B",
+      "column_start": 0,
+      "column_span": 1,
+      "top": 0.5502,
+      "bottom": 0.9847,
+      "role": "brief",
+      "headline_weight": "medium"
+    },
+    {
+      "id": "C",
+      "column_start": 1,
+      "column_span": 4,
+      "top": 0.5458,
+      "bottom": 0.9852,
+      "role": "normal",
+      "image_style": "large",
+      "image_position": "top",
+      "headline_weight": "medium"
+    }
+  ]
+}

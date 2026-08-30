@@ -2,7 +2,7 @@
 
 两种节奏:
   撒网  热榜 30min / RSS 60min / 定向 6h / 正文抽取 6h
-  收网  07:00 早报 / 18:00 晚报
+  收网  07:00 早报 / 19:00 晚报
 
 jitter + coalesce 是新手最常漏的两个参数:
   没有 jitter,所有采集器整点齐发,像一次小型 DDoS;
@@ -28,7 +28,7 @@ from pipeline.edition import produce_edition
 
 log = logging.getLogger("fishnet.scheduler")
 
-# 出报 07:00 / 18:00。开刷落在前两小时窗口的前一小时，给顺序拉号留余量。
+# 出报 07:00 / 19:00。开刷落在前两小时窗口的前一小时，给顺序拉号留余量。
 WEWE_REFRESH_JITTER_SECONDS = 3600
 WEWE_REFRESH_GAP = (45.0, 90.0)
 

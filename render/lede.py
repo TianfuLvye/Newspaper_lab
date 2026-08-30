@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 
 from core.llm import llm_api_key, llm_base_url, llm_flash_model
-from render.layout.model import Article
+from render.edition_model import Article
 
 LEDE_PROMPT = """你是这份个人报纸的夜班编辑。根据下面的标题和开头,写一段约 200 字的「今日综述」。
 要求:像报纸社论导语,不要条目列表,不要营销腔,点出 2–4 条主线之间的关系。只输出综述正文。
