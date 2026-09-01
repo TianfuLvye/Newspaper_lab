@@ -14,6 +14,7 @@ from pathlib import Path
 
 from core.settings import ROOT
 from render.edition_to_articles import write_articles_json
+from render.edition_to_client import write_client_edition
 from render.lede import make_lede
 from render.parse_edition import parse_edition_dir
 
@@ -36,6 +37,7 @@ class NewspaperResult:
     unassigned: list[str] = field(default_factory=list)
     cost: float = 0.0
     error: str | None = None
+    client_path: Path | None = None
 
 
 def render_newspaper(
@@ -57,8 +59,11 @@ def render_newspaper(
         f"# 今日综述\n\n> 来源 `{lede_src}`\n\n{lede}\n",
         encoding="utf-8",
     )
-    articles_path, _articles, _meta = write_articles_json(
+    articles_path, articles, meta = write_articles_json(
         edition_dir, kind=kind, lede=lede
+    )
+    client_path, _client = write_client_edition(
+        edition_dir, kind=kind, articles=articles, meta=meta
     )
 
     html_path = edition_dir / "digest.html"
@@ -70,6 +75,7 @@ def render_newspaper(
             pdf_path=None,
             layout_path=edition_dir / "layout.json",
             articles_path=articles_path,
+            client_path=client_path,
             seconds=time.monotonic() - t0,
             error="skipped",
         )
@@ -117,6 +123,7 @@ def render_newspaper(
         pdf_path=pdf_path,
         layout_path=layout_path,
         articles_path=articles_path,
+        client_path=client_path,
         seconds=dt,
         pages=n_pages,
         unassigned=unassigned,

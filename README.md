@@ -32,6 +32,8 @@ uv run main.py enrich --limit 20            # Lab 5 正文抽取 + B 站白名�
 uv run main.py transcript BV19d4y1D7n3      # 口播：音频 → 火山 STT → 改稿
 uv run main.py render --edition am          # Lab 6/7/8 出一期早报(含 PDF)
 uv run main.py pdf --edition 2026-08-26-am  # 只排版已有 digest,不打 used_in
+uv run main.py client                       # 移动端客户端 http://127.0.0.1:8080
+uv run main.py client --export-only         # 只写 edition.json,不启动 Node
 uv run main.py health                       # Lab 6 系统体检
 uv run main.py serve                        # Lab 6 常驻调度
 uv run main.py console                      # 本机订阅台 http://127.0.0.1:8787
@@ -58,6 +60,7 @@ uv run python -m tests.test_drip       # 滴灌游标 / 口播栏见报
 uv run python -m tests.test_lab6       # Lab 6 调度配置 / 出报隔离 / 体检
 uv run python -m tests.test_lab7       # Lab 7 黄金集 / 两阶段 / 折叠 / 反馈 / A/B
 uv run python -m tests.test_lab8       # Lab 8 期次 → articles.json / 模板加载
+uv run python -m tests.test_client     # 移动端 edition.json
 
 # 长时间稳定性(验收标准:6 小时无崩溃)
 uv run python -m tests.test_lab1_endurance --hours 6
@@ -105,6 +108,7 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | pipeline/golden.py | 7 | 黄金集 ≥50、画像拟合 |
 | render/ranked.py | 7 | 头版 / 深度 / 今日一问 |
 | render/edition_to_articles.py | 8 | 期次目录 → articles.json |
+| render/edition_to_client.py | 8 | 期次目录 → 移动端 edition.json |
 | render/newspaper.py | 8 | newspaper-layout v0.4 → HTML + PDF |
 | render/newspaper_templates/ | 8 | Guardian 模板 |
 | docs/adr/006-embed-backend.md | 7 | 不上 chromadb 的理由 |

@@ -10,6 +10,7 @@
   uv run main.py transcript BV19d4y1D7n3 # 口播：下载音频 → 火山 STT → 改稿
   uv run main.py render --edition am     # Lab 6/7/8 出一期早报(含 PDF)
   uv run main.py pdf                     # 对已有期次只排版,不重跑打分
+  uv run main.py client                  # 启动移动端客户端
   uv run main.py golden                  # Lab 7 拟合收藏夹画像
   uv run main.py ab --kind am            # Lab 7 热度 vs 打分对照
   uv run main.py feedback --edition DATE-am --n 1 --label 1
@@ -290,6 +291,48 @@ def cmd_console(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_client(args: argparse.Namespace) -> int:
+    """写出移动端 edition.json,并启动 auto-daily-client。"""
+    import os
+    import shutil
+    import subprocess
+
+    from core.settings import ROOT, load_settings
+    from render.edition_to_client import export_all_client_editions, write_client_edition
+
+    settings = load_settings()
+    editions_dir = settings.editions_dir
+    if args.edition:
+        dest = editions_dir / args.edition
+        if not dest.exists():
+            print(f"找不到期次 {args.edition}", file=sys.stderr)
+            return 1
+        path, payload = write_client_edition(dest)
+        print(f"wrote {path} articles={len(payload['articles'])}")
+    else:
+        index = export_all_client_editions(editions_dir)
+        print(f"wrote {editions_dir / 'index.json'} latest={index['latest']} n={len(index['editions'])}")
+    if args.export_only:
+        return 0
+
+    client_root = ROOT.parent / "auto-daily-client"
+    if not (client_root / "scripts" / "dev.mjs").exists():
+        print(
+            f"找不到客户端 {client_root}。先把 auto-daily-client 放到 fishnet-lab/ 下。",
+            file=sys.stderr,
+        )
+        return 1
+    node = shutil.which("node")
+    if not node:
+        print("需要 Node.js 才能启动客户端。", file=sys.stderr)
+        return 1
+    env = os.environ.copy()
+    env["EDITIONS_DIR"] = str(editions_dir.resolve())
+    env["PORT"] = str(args.port)
+    print(f"自动日报客户端 http://127.0.0.1:{args.port}/")
+    return subprocess.call([node, "scripts/dev.mjs"], cwd=client_root, env=env)
+
+
 def cmd_pdf(args: argparse.Namespace) -> int:
     """对已有一期 Markdown 做 A3 报纸排版。不打 used_in,不跑采集。"""
     from core.settings import load_settings
@@ -327,6 +370,8 @@ def cmd_pdf(args: argparse.Namespace) -> int:
     if result.unassigned:
         print(f"unassigned: {', '.join(result.unassigned)}")
     print(f"wrote {result.articles_path}")
+    if result.client_path:
+        print(f"wrote {result.client_path}")
     print(f"wrote {result.html_path}")
     print(f"wrote {result.layout_path}")
     if result.pdf_path:
@@ -607,7 +652,7 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         help="把已有期次排成 A3 报纸(Lab 8,不标记 used_in)",
         description=(
-            "只吃 data/editions/{期号}/ 里的 Markdown,写出 articles.json / digest.html / digest.pdf / layout.json。\n"
+            "只吃 data/editions/{期号}/ 里的 Markdown,写出 articles.json / edition.json / digest.html / digest.pdf / layout.json。\n"
             "排版调试用这个,不要重跑 collect。需要本机 Chromium。"
         ),
         epilog=(
@@ -719,6 +764,35 @@ def build_parser() -> argparse.ArgumentParser:
         help="端口（默认 8787）",
     )
     p_console.set_defaults(func=cmd_console)
+
+    p_client = sub.add_parser(
+        "client",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="启动移动端客户端(写出 edition.json)",
+        description=(
+            "把 data/editions/ 转成客户端契约 edition.json / index.json,\n"
+            "然后启动 auto-daily-client。打印端仍走 articles.json,互不影响。"
+        ),
+        epilog=(
+            "示例:\n"
+            "  uv run main.py client\n"
+            "  uv run main.py client --export-only\n"
+            "  uv run main.py client --edition 2026-08-30-pm --port 3000"
+        ),
+    )
+    p_client.add_argument("--edition", help="只导出某一期,例如 2026-08-30-pm")
+    p_client.add_argument(
+        "--export-only",
+        action="store_true",
+        help="只写 edition.json,不启动 Node 服务器",
+    )
+    p_client.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="客户端端口(默认 8080)",
+    )
+    p_client.set_defaults(func=cmd_client)
 
     p_push = sub.add_parser(
         "push",
