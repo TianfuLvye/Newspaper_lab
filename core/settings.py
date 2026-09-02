@@ -77,6 +77,10 @@ class Settings:
     edition_pm_hour: int = 18
     edition_pm_minute: int = 0
     wewe_url: str = "http://127.0.0.1:4000"
+    notify_channels: tuple[str, ...] = ("email",)
+    notify_attach_pdf: bool = True
+    notify_attach_html: bool = False
+    notify_max_attach_bytes: int = 15 * 1024 * 1024
 
 
 def load_settings(path: Path | None = None) -> Settings:
@@ -98,6 +102,16 @@ def load_settings(path: Path | None = None) -> Settings:
         cache_dir = ROOT / cache_dir
     sched = data.get("scheduler", {})
     wewe = data.get("wewe", {})
+    notify = data.get("notify", {})
+    try:
+        max_attach_mb = float(notify.get("max_attach_mb", 15))
+    except (TypeError, ValueError):
+        max_attach_mb = 15.0
+    channels_raw = notify.get("channels")
+    if channels_raw is None:
+        notify_channels = ("email",)
+    else:
+        notify_channels = tuple(str(x) for x in channels_raw)
 
     def _abs(raw: str) -> Path:
         pth = Path(raw)
@@ -131,6 +145,10 @@ def load_settings(path: Path | None = None) -> Settings:
         edition_pm_hour=int(sched.get("pm_hour", 18)),
         edition_pm_minute=int(sched.get("pm_minute", 0)),
         wewe_url=str(wewe.get("base_url", "http://127.0.0.1:4000")).rstrip("/"),
+        notify_channels=notify_channels,
+        notify_attach_pdf=bool(notify.get("attach_pdf", True)),
+        notify_attach_html=bool(notify.get("attach_html", False)),
+        notify_max_attach_bytes=int(max_attach_mb * 1024 * 1024),
     )
 
 

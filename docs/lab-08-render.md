@@ -61,6 +61,6 @@ open data/editions/2026-08-28-am/digest.html
 
 ## 留给下一 Lab 的接口
 
-- `digest.pdf` / `digest.html` 是 Lab 9 邮件附件和正文的输入。
-- `articles.json` / `layout.json` 给调试，不必进 git。
-- 推送仍是 `main.py push` 占位。
+- `digest.pdf` 是邮件附件;`articles.json` 给摘要正文。`digest.html` 默认不附(打印 CSS,体积大)。
+- `layout.json` 给调试,不必进 git。
+- `uv run main.py push` 已接 SMTP;Telegram / 客户端仍跳过。

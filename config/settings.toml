@@ -43,6 +43,14 @@ deepread_n = 8
 critical_n = 3
 explore_ratio = 0.15
 
+[notify]
+# Lab 9.1:主通道邮件。telegram / feishu / client 名字认,但本切片不发。
+channels = ["email"]
+attach_pdf = true
+# A3 digest.html 数 MB 且依赖打印 CSS,默认不附、也不内联进正文。
+attach_html = false
+max_attach_mb = 15
+
 [extract]
 # Lab 5:正文抽取。同一 URL 24h 内不重复请求;同域名至少间隔 delay_seconds。
 cache_dir = "data/html_cache"

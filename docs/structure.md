@@ -1,4 +1,4 @@
-# Fishnet 项目结构（Lab 8 之后）
+# Fishnet 项目结构（Lab 9 邮件切片之后）
 
 配套手册是仓库上一级的 `Fishnet-Lab.md`。本仓库 `fishnet-reference/` 是实现。设计决策按 Lab 记在 `docs/lab-*.md` 和 `docs/adr/`；本文只画**现在代码实际长什么样**。
 
@@ -25,7 +25,7 @@ fishnet-lab/                      ← Cursor 工作区
     ├── pipeline/                 关键词、打分、出报、体检
     ├── render/                   栏目 Markdown + newspaper-layout 排版
     ├── scheduler/                APScheduler 常驻
-    ├── notify/                   Lab 9 占位（空）
+    ├── notify/                   Lab 9：通道选择 + SMTP 邮件
     ├── docs/                     每个 Lab 的设计笔记 + 本文
     ├── tests/
     └── data/                     运行时产物（不进 git）
@@ -66,7 +66,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
                          Lab 8：digest.md → newspaper-layout A3 HTML/PDF
                                       │
                                       ▼
-                         Lab 9：邮件 / Telegram（notify/ 仍空）
+                         Lab 9：邮件摘要 + PDF 附件（Telegram / 客户端未做）
 ```
 
 原则：**采集器全量入库，报纸才决定今天印哪 30 条。** 热榜标题流和 B 站视频不进个性化打分池。
@@ -142,8 +142,8 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 
 ### 4.6 `scheduler/` / `notify/`
 
-- `scheduler/run.py`：热榜 30min、RSS 60min、定向与 enrich 6h；07:00 早报 / 19:00 晚报（`Asia/Shanghai`）。jitter + coalesce，避免整点齐发和补跑风暴。
-- `notify/`：空。`main.py push` 是 Lab 9 占位。
+- `scheduler/run.py`：热榜 30min、RSS 60min、定向与 enrich 6h；07:00 早报 / 19:00 晚报（`Asia/Shanghai`）。jitter + coalesce，避免整点齐发和补跑风暴。出报成功后立刻 `push`。
+- `notify/`：Lab 9。主通道 SMTP。`main.py push` 发摘要 + `digest.pdf`；未配置则跳过。
 
 ---
 
@@ -151,13 +151,13 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 
 | 文件 | 作用 |
 |---|---|
-| `config/settings.toml` | DailyHot / RSSHub 地址、库路径、调度时刻、抽取缓存、打分条数 |
+| `config/settings.toml` | DailyHot / RSSHub 地址、库路径、调度时刻、抽取缓存、打分条数、`[notify]` 通道 |
 | `config/sources.yaml` | `hotlists` + `feeds`（+ 可选 `targeted`） |
 | `config/keywords.yaml` | 关键词组；只贡献 \(S_{kw}\) |
 | `config/golden.yaml` | 黄金集路径、知乎收藏夹 id |
 | `config/golden.jsonl` | 画像语料（gitignore，个人数据） |
 | `config/wechat.yaml` | WeWe 公众号（gitignore） |
-| `.env` | `ZHIHU_COOKIES`、`FISHNET_LLM_API_KEY` 等 |
+| `.env` | `ZHIHU_COOKIES`、`FISHNET_LLM_API_KEY`、`FISHNET_SMTP_*` |
 
 `[ranking]` 当前：粗排 Top 150 进评委；头版 3、深度 8、今日一问 3；探索比 15%。
 
@@ -190,6 +190,9 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 
 ```text
 digest.md          ← Lab 8 主入口：各版 Markdown 拼在一起
+digest.html        ← A3 权威版面
+digest.pdf         ← 邮件附件
+notify.json        ← Lab 9 已推送记录(成功才写)
 01_headline.md
 02_hotlist.md
 03_deepread.md
@@ -240,9 +243,9 @@ uv run main.py render --edition am
 | `ab --kind am` | 7 | 热度 vs 打分盲评 |
 | `stats` | 0 | 库规模 |
 | `pdf` | 8 | 已有期次 → v0.4 A3 HTML/PDF,不打 used_in |
-| `push` | 9 | 未实现 |
+| `push` | 9 | 邮件推送最近一期(或 `--edition`) |
 
-测试：`uv run python -m tests.test_labN`（N=1…8），总冒烟 `tests.test_all`。
+测试：`uv run python -m tests.test_labN`（N=1…9），总冒烟 `tests.test_all`。
 
 ---
 
@@ -259,6 +262,7 @@ uv run main.py render --edition am
 | 6 调度 | 早晚自动出报 + 体检页 | `scheduler/run.py` `pipeline/edition.py` |
 | 7 个性化 | 头版/深度/今日一问 + Fnn | `pipeline/rank.py` `render/ranked.py` |
 | 8 渲染 | A3 报纸 PDF/HTML（newspaper-layout v0.4） | `render/edition_to_articles.py` `render/newspaper.py` |
+| 9 推送 | 邮箱收到摘要 + PDF | `notify/` `main.py push` |
 
 文档索引见 [README.md](./README.md)。
 

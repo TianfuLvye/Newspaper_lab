@@ -1,4 +1,4 @@
-"""Fishnet 统一 CLI 入口(Lab 0–8)。
+"""Fishnet 统一 CLI 入口(Lab 0–9)。
 
 用法示例:
   uv run main.py --help
@@ -11,11 +11,12 @@
   uv run main.py render --edition am     # Lab 6/7/8 出一期早报(含 PDF)
   uv run main.py pdf                     # 对已有期次只排版,不重跑打分
   uv run main.py client                  # 启动移动端客户端
+  uv run main.py push                    # Lab 9 邮件推送最近一期
   uv run main.py golden                  # Lab 7 拟合收藏夹画像
   uv run main.py ab --kind am            # Lab 7 热度 vs 打分对照
   uv run main.py feedback --edition DATE-am --n 1 --label 1
   uv run main.py health                  # Lab 6 系统体检
-  uv run main.py serve                   # Lab 6 常驻调度
+  uv run main.py serve                   # Lab 6 常驻调度(出报后自动 push)
   uv run main.py console                 # 本机网页控制台，改订阅源
   uv run main.py stats
 """
@@ -383,8 +384,44 @@ def cmd_pdf(args: argparse.Namespace) -> int:
 
 
 def cmd_push(args: argparse.Namespace) -> int:
-    print("push: 尚未实现 —— 见 Lab 9(邮件 / Telegram 推送)")
-    return 0
+    """Lab 9:把已有期次发到邮件。未配置 SMTP 时跳过,不算失败。"""
+    from notify.channels import UnknownChannelError
+    from notify.config import NotifyConfigError, load_notify_config, resolve_edition_dir
+    from notify.push import push_edition_dir
+
+    load_env_file()
+    settings = load_settings()
+    try:
+        cfg = load_notify_config(settings=settings)
+    except (NotifyConfigError, UnknownChannelError) as e:
+        print(f"push: 配置错误 {e}", file=sys.stderr)
+        return 1
+    dest = resolve_edition_dir(
+        settings.editions_dir,
+        edition=args.edition,
+        directory=args.dir,
+    )
+    if dest is None:
+        if not cfg.smtp or not cfg.smtp.configured:
+            print("push: SMTP 未配置,跳过(见 .env.example 的 FISHNET_SMTP_*)")
+            return 0
+        print("找不到期次目录。先 render --edition am,或指定 --edition / --dir。", file=sys.stderr)
+        return 1
+    result = push_edition_dir(
+        dest,
+        config=cfg,
+        dry_run=args.dry_run,
+        force=args.force,
+    )
+    extra = f" reason={result.reason}" if result.reason else ""
+    print(
+        f"push {result.status} edition={result.edition_id} "
+        f"to={','.join(result.to) or '-'} "
+        f"attach={','.join(result.attachments) or '-'}{extra}"
+    )
+    if result.skipped_channels:
+        print(f"skipped channels: {', '.join(result.skipped_channels)}")
+    return 0 if result.status != "failed" else 1
 
 
 def cmd_golden(args: argparse.Namespace) -> int:
@@ -508,7 +545,8 @@ def build_parser() -> argparse.ArgumentParser:
             "Lab 5: trafilatura 正文抽取 → items.content。\n"
             "Lab 6: APScheduler 常驻 + 早晚出报 + 系统体检。\n"
             "Lab 7: 收藏夹画像 + 两阶段打分 + 事件折叠 + 反馈。\n"
-            "Lab 8: 期次 Markdown → newspaper-layout v0.4 A3 HTML/PDF。"
+            "Lab 8: 期次 Markdown → newspaper-layout v0.4 A3 HTML/PDF。\n"
+            "Lab 9: SMTP 邮件推送(摘要正文 + PDF 附件)。"
         ),
         epilog=(
             "Lab 3 快速验收:\n"
@@ -796,8 +834,31 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_push = sub.add_parser(
         "push",
-        help="推送报纸(Lab 9 占位)",
-        description="Lab 9 再实现邮件 / Telegram 推送。",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        help="邮件推送一期报纸(Lab 9)",
+        description=(
+            "把 data/editions/{期号}/ 的目录做成邮件摘要,PDF 当附件发出。\n"
+            "SMTP 走 .env 的 FISHNET_SMTP_*;没配则跳过,不算出错。\n"
+            "Telegram / 客户端本切片不发。"
+        ),
+        epilog=(
+            "示例:\n"
+            "  uv run main.py push --dry-run\n"
+            "  uv run main.py push --edition 2026-09-01-pm\n"
+            "  uv run main.py push --force"
+        ),
+    )
+    p_push.add_argument("--edition", help="期号,例如 2026-09-01-pm")
+    p_push.add_argument("--dir", type=Path, help="期次目录(覆盖 --edition)")
+    p_push.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="只组装邮件,不连 SMTP",
+    )
+    p_push.add_argument(
+        "--force",
+        action="store_true",
+        help="已推送过也再发(忽略 notify.json)",
     )
     p_push.set_defaults(func=cmd_push)
 

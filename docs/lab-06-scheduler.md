@@ -33,7 +33,7 @@
 - **为什么 APScheduler 而不是 cron**: 单机 Python 原生;和 `main.py` 同一条路,手动 `render --edition am` 能复现明早将发生的事。
 - **为什么传 collector 名而不是实例**: 线程池里每次 job 自己 `Store(db)` + `get_collector(name)`。SQLite 连接不能跨线程共用。
 - **为什么 targeted 没填 `creator_id` 不挂**: 否则每 6 小时记一条「未配置」失败,体检永远红。填了 id 才会 `enabled=True`。
-- **刻意不做**: 不出 07:30 PDF 推送(Lab 9);不把 dummy 进常驻。
+- **刻意不做**: 不把 dummy 进常驻。邮件推送已由 Lab 9 接到出报成功之后。
 
 ### `jitter` / `coalesce`
 
@@ -86,4 +86,4 @@ uv run main.py serve
 - 体检页文件名 `99_health.md`,Lab 8 模板目录按这个序号接。
 - `used_in` 已有值的条目不再进候选;Lab 7 打分只看未使用 + 当日窗口(已接入 `produce_edition`)。
 - 出报 Markdown 已含正文(或视频简介),Lab 8 排版时直接吃 `digest.md` / `items/*.md`,不要再做成标题链接表。
-- 推送(07:30 / 18:30)仍是 `main.py push` 占位,Lab 9 接 SMTP / Telegram。
+- 推送:出报成功后 `scheduler` 调 `notify.push`;人手 `uv run main.py push`。SMTP 见 `.env.example`。

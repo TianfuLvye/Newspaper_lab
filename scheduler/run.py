@@ -2,7 +2,7 @@
 
 两种节奏:
   撒网  热榜 30min / RSS 60min / 定向 6h / 正文抽取 6h
-  收网  07:00 早报 / 19:00 晚报
+  收网  07:00 早报 / 19:00 晚报;成功后立刻 push 邮件
 
 jitter + coalesce 是新手最常漏的两个参数:
   没有 jitter,所有采集器整点齐发,像一次小型 DDoS;
@@ -147,6 +147,27 @@ def _job_wewe_refresh() -> None:
         log.exception("wewe refresh job failed")
 
 
+def _job_push(edition_dir: Path) -> None:
+    """出报成功后发邮件。SMTP 没配或已发过都跳过;失败不让出报任务崩。"""
+    from core.settings import load_env_file
+    from notify.config import load_notify_config
+    from notify.push import push_edition_dir
+
+    try:
+        load_env_file()
+        cfg = load_notify_config()
+        result = push_edition_dir(edition_dir, config=cfg)
+        log.info(
+            "push %s edition=%s to=%s reason=%s",
+            result.status,
+            result.edition_id,
+            ",".join(result.to) or "-",
+            result.reason or "-",
+        )
+    except Exception:
+        log.exception("push failed dir=%s", edition_dir)
+
+
 def _job_edition(kind: str, db_path: Path) -> None:
     store = Store(db_path)
     try:
@@ -158,6 +179,8 @@ def _job_edition(kind: str, db_path: Path) -> None:
             result.digest_path,
             result.failures,
         )
+        if result.status != "failed" and result.digest_path is not None:
+            _job_push(result.digest_path.parent)
     except Exception:
         log.exception("edition %s crashed", kind)
     finally:

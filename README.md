@@ -34,6 +34,8 @@ uv run main.py render --edition am          # Lab 6/7/8 出一期早报(含 PDF)
 uv run main.py pdf --edition 2026-08-26-am  # 只排版已有 digest,不打 used_in
 uv run main.py client                       # 移动端客户端 http://127.0.0.1:8080
 uv run main.py client --export-only         # 只写 edition.json,不启动 Node
+uv run main.py push --dry-run               # Lab 9 预览邮件,不连 SMTP
+uv run main.py push --edition 2026-09-01-pm # 把一期报纸发到邮箱
 uv run main.py health                       # Lab 6 系统体检
 uv run main.py serve                        # Lab 6 常驻调度
 uv run main.py console                      # 本机订阅台 http://127.0.0.1:8787
@@ -60,6 +62,7 @@ uv run python -m tests.test_drip       # 滴灌游标 / 口播栏见报
 uv run python -m tests.test_lab6       # Lab 6 调度配置 / 出报隔离 / 体检
 uv run python -m tests.test_lab7       # Lab 7 黄金集 / 两阶段 / 折叠 / 反馈 / A/B
 uv run python -m tests.test_lab8       # Lab 8 期次 → articles.json / 模板加载
+uv run python -m tests.test_lab9       # Lab 9 通道选择 / 邮件组装(不连 SMTP)
 uv run python -m tests.test_client     # 移动端 edition.json
 
 # 长时间稳定性(验收标准:6 小时无崩溃)
@@ -111,16 +114,19 @@ uv run python -m tests.test_lab1_endurance --minutes 3 --interval 60
 | render/edition_to_client.py | 8 | 期次目录 → 移动端 edition.json |
 | render/newspaper.py | 8 | newspaper-layout v0.4 → HTML + PDF |
 | render/newspaper_templates/ | 8 | Guardian 模板 |
+| notify/ | 9 | 通道选择 + SMTP(摘要正文,PDF 附件) |
 | docs/adr/006-embed-backend.md | 7 | 不上 chromadb 的理由 |
 | docs/adr/007-newspaper-grid.md | 8 | 旧网格方案（superseded） |
 | docs/adr/009-newspaper-layout-v04.md | 8 | 为什么换成 v0.4 模板拼版 |
 | docs/adr/008-bilibili-transcript-whitelist.md | — | B 站列 BV；合集滴灌进 04 口播栏 |
 | docs/lab-08-render.md | 8 | 排版设计笔记 |
+| docs/lab-09-notify.md | 9 | 邮件推送设计笔记 |
+| docs/adr/010-notify-email.md | 9 | 为什么主通道是 SMTP、为什么不内联 A3 HTML |
 
 ## 仍待实现
 
 - Lab 4 直播抓取:本机扫码 MediaCrawler + 填写 `targeted.creator_id`(fixture 路径已验收)
-- `notify/*` —— 邮件 / Telegram 推送(Lab 9;`digest.pdf` / `digest.html` 已可当附件)
+- Lab 9 后半:Docker 全家桶、90 天归档、磁盘水位;Telegram / 飞书提醒
 - 知乎收藏夹 id 填进 `config/golden.yaml` 后 `golden --refresh`,用你的真收藏替换冷启动 seed
 - 配 `FISHNET_LLM_API_KEY` 后评委从启发式切到 LLM(每期仍 ≤150 次,用 Flash 文本模型);头版综述也会走 Flash;配图挑选走 Visual
 - 读书滴灌（章节列表复用 `core/drip.py`）

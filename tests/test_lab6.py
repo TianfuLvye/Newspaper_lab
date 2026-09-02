@@ -364,7 +364,7 @@ def test_cli_subcommands_independent():
         ["--db", str(tmp), "render", "--edition", "am", "--out-dir", str(tmp.parent / "ed")]
     )
     check("render --edition runnable", rc_ed in (0, 1), str(rc_ed))
-    rc_push = main(["--db", str(tmp), "push"])
+    rc_push = main(["--db", str(tmp), "push", "--dry-run"])
     check("push runnable", rc_push == 0, str(rc_push))
 
 
