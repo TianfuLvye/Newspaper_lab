@@ -15,7 +15,7 @@
 
 | 验收 / 原则 | 落点 |
 |---|---|
-| 自建 RSSHub 跑通 | `docker compose up -d` |
+| 自建 RSSHub 跑通 | `docker compose up -d rsshub redis`(9.2 之后全量 `up -d` 会连 fishnet serve) |
 | ≥10 订阅源 | `sources.yaml` feeds |
 | 知乎 + 新番 + 财经 | Thoughts Memo/差评君；知乎日报早报；Bangumi 今日放送；华尔街日报/见闻。不定个人 B 站 UP |
 | 公众号方案 | ADR-002 + WeWe RSS compose 文件 |
@@ -116,7 +116,7 @@ uv run main.py render --section subscriptions
 ## 本地怎么验收（RSS 订阅部分）
 
 ```bash
-docker compose up -d
+docker compose up -d rsshub redis
 uv run python -m tests.test_lab3
 uv run main.py collect --only-rss
 uv run main.py render --section subscriptions

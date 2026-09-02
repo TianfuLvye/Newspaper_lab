@@ -5,7 +5,8 @@
 #
 # feeds:
 #   - name: "示例公众号"
-#     url: "http://127.0.0.1:4000/feed/xxxxxxxx"
+#     url: "{wewe}/feeds/MP_WXS_xxxxxxxx.atom"
+#     # 本机也可写 http://127.0.0.1:4000/... ;容器内会按 FISHNET_WEWE_URL 改写。
 #     source: wechat_mp
 #     kind: article
 #     weight: 2.0

@@ -546,15 +546,17 @@ def build_parser() -> argparse.ArgumentParser:
             "Lab 6: APScheduler 常驻 + 早晚出报 + 系统体检。\n"
             "Lab 7: 收藏夹画像 + 两阶段打分 + 事件折叠 + 反馈。\n"
             "Lab 8: 期次 Markdown → newspaper-layout v0.4 A3 HTML/PDF。\n"
-            "Lab 9: SMTP 邮件推送(摘要正文 + PDF 附件)。"
+            "Lab 9: SMTP 邮件推送(摘要正文 + PDF 附件);compose 全家桶。"
         ),
         epilog=(
             "Lab 3 快速验收:\n"
-            "  1) docker compose up -d          # 起 RSSHub(:1200) + redis\n"
+            "  1) docker compose up -d dailyhot rsshub redis\n"
             "  2) uv run main.py collect --only-rss\n"
             "  3) uv run main.py stats\n"
             "  4) uv run main.py render --section subscriptions\n"
             f"  RSSHub 基址(settings): {settings.rsshub_url}\n"
+            "Lab 9.2 部署全家桶(含 fishnet serve):\n"
+            "  docker compose up -d --build\n"
         ),
     )
     parser.add_argument(

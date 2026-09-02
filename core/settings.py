@@ -2,11 +2,18 @@
 from __future__ import annotations
 
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 import yaml
+
+# Lab 9.2: compose 里用服务名覆盖 settings.toml 的 127.0.0.1,本机 CLI 不受影响。
+ENV_DAILYHOT_URL = "FISHNET_DAILYHOT_URL"
+ENV_RSSHUB_URL = "FISHNET_RSSHUB_URL"
+ENV_WEWE_URL = "FISHNET_WEWE_URL"
+_WEWE_LOOPBACK = re.compile(r"https?://(?:127\.0\.0\.1|localhost):4000", re.IGNORECASE)
 
 ROOT = Path(__file__).resolve().parent.parent
 SETTINGS_PATH = ROOT / "config" / "settings.toml"
@@ -32,13 +39,37 @@ def load_env_file(path: Path | None = None) -> None:
         os.environ[name] = value.strip().strip("'").strip('"')
 
 
-def _expand_feed_rows(rows: list[dict], *, rsshub_url: str) -> list[dict]:
-    base = rsshub_url.rstrip("/")
+def url_from_env(name: str, fallback: str) -> str:
+    """环境变量优先。空字符串视为未设置,回落到 settings.toml / 默认值。"""
+    raw = (os.environ.get(name) or "").strip()
+    return (raw or fallback).rstrip("/")
+
+
+def _loopback_host(url: str) -> bool:
+    host = url.split("://", 1)[-1].split("/", 1)[0].split("@")[-1]
+    host = host.rsplit("]", 1)[0].lstrip("[").split(":")[0].lower()
+    return host in {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+
+
+def rewrite_wewe_loopback(url: str, wewe_url: str) -> str:
+    """wechat.yaml 里常写死 127.0.0.1:4000。容器内改成 wewe-rss 服务名。"""
+    base = wewe_url.rstrip("/")
+    if not url or _loopback_host(base):
+        return url
+    return _WEWE_LOOPBACK.sub(base, url)
+
+
+def _expand_feed_rows(
+    rows: list[dict], *, rsshub_url: str, wewe_url: str = "http://127.0.0.1:4000"
+) -> list[dict]:
+    rss = rsshub_url.rstrip("/")
+    wewe = wewe_url.rstrip("/")
     out: list[dict] = []
     for row in rows:
         item = dict(row)
         url = str(item.get("url", ""))
-        item["url"] = url.replace("{rsshub}", base)
+        url = url.replace("{rsshub}", rss).replace("{wewe}", wewe)
+        item["url"] = rewrite_wewe_loopback(url, wewe)
         out.append(item)
     return out
 
@@ -118,9 +149,13 @@ def load_settings(path: Path | None = None) -> Settings:
         return pth if pth.is_absolute() else ROOT / pth
 
     return Settings(
-        dailyhot_url=str(daily.get("base_url", "http://127.0.0.1:6688")).rstrip("/"),
+        dailyhot_url=url_from_env(
+            ENV_DAILYHOT_URL, str(daily.get("base_url", "http://127.0.0.1:6688"))
+        ),
         dailyhot_timeout=float(daily.get("timeout_seconds", 20)),
-        rsshub_url=str(rsshub.get("base_url", "http://127.0.0.1:1200")).rstrip("/"),
+        rsshub_url=url_from_env(
+            ENV_RSSHUB_URL, str(rsshub.get("base_url", "http://127.0.0.1:1200"))
+        ),
         db_path=ROOT / paths.get("db", "data/fishnet.db"),
         render_dir=ROOT / paths.get("render_dir", "render/sections"),
         mc_home=mc_home,
@@ -144,7 +179,9 @@ def load_settings(path: Path | None = None) -> Settings:
         edition_am_minute=int(sched.get("am_minute", 0)),
         edition_pm_hour=int(sched.get("pm_hour", 18)),
         edition_pm_minute=int(sched.get("pm_minute", 0)),
-        wewe_url=str(wewe.get("base_url", "http://127.0.0.1:4000")).rstrip("/"),
+        wewe_url=url_from_env(
+            ENV_WEWE_URL, str(wewe.get("base_url", "http://127.0.0.1:4000"))
+        ),
         notify_channels=notify_channels,
         notify_attach_pdf=bool(notify.get("attach_pdf", True)),
         notify_attach_html=bool(notify.get("attach_html", False)),
@@ -213,12 +250,22 @@ def load_feeds(
     path: Path | None = None,
     *,
     rsshub_url: str | None = None,
+    wewe_url: str | None = None,
     overlay_path: Path | None = None,
     wechat_path: Path | None = None,
 ) -> list[dict]:
-    """返回已展开 {rsshub} 占位的 feed 列表（sources + overlay + wechat）。"""
+    """返回已展开 {rsshub}/{wewe} 占位的 feed 列表（sources + overlay + wechat）。"""
     p = path or SOURCES_PATH
-    base = (rsshub_url if rsshub_url is not None else load_settings().rsshub_url).rstrip("/")
+    cfg_settings: Settings | None = None
+
+    def _settings() -> Settings:
+        nonlocal cfg_settings
+        if cfg_settings is None:
+            cfg_settings = load_settings()
+        return cfg_settings
+
+    base = (rsshub_url if rsshub_url is not None else _settings().rsshub_url).rstrip("/")
+    wewe = (wewe_url if wewe_url is not None else _settings().wewe_url).rstrip("/")
     cfg = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     builtin = [dict(row) for row in (cfg.get("feeds") or [])]
     overlay = load_overlay(overlay_path)
@@ -228,7 +275,7 @@ def load_feeds(
         name = str(row.get("name") or "")
         if name and name not in disabled:
             rows.append(dict(row))
-    return _expand_feed_rows(rows, rsshub_url=base)
+    return _expand_feed_rows(rows, rsshub_url=base, wewe_url=wewe)
 
 
 def load_targeted(path: Path | None = None) -> list[dict]:

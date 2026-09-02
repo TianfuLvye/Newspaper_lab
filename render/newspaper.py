@@ -154,10 +154,17 @@ def resolve_chromium() -> str:
 
 
 def _playwright_chromium() -> str | None:
-    roots = [
-        Path.home() / "Library/Caches/ms-playwright",
-        Path.home() / ".cache" / "ms-playwright",
-    ]
+    roots = []
+    env_root = os.environ.get("PLAYWRIGHT_BROWSERS_PATH")
+    if env_root:
+        roots.append(Path(env_root))
+    roots.extend(
+        [
+            Path.home() / "Library/Caches/ms-playwright",
+            Path.home() / ".cache" / "ms-playwright",
+            Path("/ms-playwright"),
+        ]
+    )
     patterns = (
         "chromium-*/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
         "chromium-*/chrome-mac/Chromium.app/Contents/MacOS/Chromium",

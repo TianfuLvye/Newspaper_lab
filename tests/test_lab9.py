@@ -1,16 +1,24 @@
-"""Lab 9 验收:通道选择 + 邮件组装。不连真实 SMTP。"""
+"""Lab 9 验收:通道选择 + 邮件组装 + Compose 全家桶结构。不连真实 SMTP / 不强制 docker up。"""
 from __future__ import annotations
 
 import json
+import os
 import sys
 import tempfile
 from email.message import EmailMessage
 from pathlib import Path
 
+import yaml
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from core.settings import load_settings
+from core.settings import (
+    load_feeds,
+    load_settings,
+    rewrite_wewe_loopback,
+    url_from_env,
+)
 from notify.channels import UnknownChannelError, select_channels
 from notify.compose import compose_digest
 from notify.config import NotifyConfig, SmtpConfig, smtp_from_env
@@ -20,6 +28,13 @@ from notify.push import already_sent, push_edition_dir
 PASS = FAIL = 0
 DOC = ROOT / "docs" / "lab-09-notify.md"
 ADR = ROOT / "docs" / "adr" / "010-notify-email.md"
+COMPOSE_DOC = ROOT / "docs" / "lab-09-compose.md"
+ADR011 = ROOT / "docs" / "adr" / "011-compose-runtime.md"
+COMPOSE_YML = ROOT / "docker-compose.yml"
+DOCKERFILE = ROOT / "Dockerfile"
+ENTRYPOINT = ROOT / "docker" / "entrypoint.sh"
+DOCKERIGNORE = ROOT / ".dockerignore"
+README = ROOT / "README.md"
 
 
 def check(name: str, cond: bool, extra: str = "") -> None:
@@ -235,6 +250,154 @@ for action in p._subparsers._group_actions:  # type: ignore[attr-defined]
         sub = action.choices.get("push")
         break
 check("push 子命令有 --dry-run", sub is not None and "--dry-run" in sub.format_help())
+
+
+print("\n[Lab 9.2] Compose 全家桶")
+check("lab-09-compose 笔记存在", COMPOSE_DOC.exists())
+check("ADR-011 存在", ADR011.exists())
+check("Dockerfile 存在", DOCKERFILE.exists())
+check("entrypoint 存在", ENTRYPOINT.exists())
+check(".dockerignore 存在", DOCKERIGNORE.exists())
+if COMPOSE_DOC.exists():
+    t = COMPOSE_DOC.read_text(encoding="utf-8")
+    check("compose 笔记写了 bind mount / 冷启动", "data" in t and "冷启动" in t)
+if ADR011.exists():
+    adr = ADR011.read_text(encoding="utf-8")
+    check("ADR-011 写了环境变量覆盖 URL", "FISHNET_DAILYHOT_URL" in adr or "环境变量" in adr)
+if README.exists():
+    readme = README.read_text(encoding="utf-8")
+    check("README 有 docker compose up -d", "docker compose up -d" in readme)
+    check("README 写了部署步骤", "部署" in readme and "data" in readme)
+if DOCKERFILE.exists():
+    df = DOCKERFILE.read_text(encoding="utf-8")
+    check("镜像装 Chromium", "playwright" in df and "chromium" in df.lower())
+    check("镜像有 CJK 字体", "fonts-noto-cjk" in df)
+    check("镜像入口是 entrypoint", "entrypoint.sh" in df)
+if ENTRYPOINT.exists():
+    ep = ENTRYPOINT.read_text(encoding="utf-8")
+    check("entrypoint 等待 dailyhot", "dailyhot" in ep)
+    check("entrypoint 超时也启动", "anyway" in ep or "继续" in ep)
+    check("entrypoint 跑 serve", "main.py serve" in ep)
+if DOCKERIGNORE.exists():
+    ignore = DOCKERIGNORE.read_text(encoding="utf-8")
+    check(".dockerignore 排除 .env", ".env" in ignore)
+    check(".dockerignore 排除 data", "data" in ignore)
+
+compose = yaml.safe_load(COMPOSE_YML.read_text(encoding="utf-8")) or {}
+services = compose.get("services") or {}
+check(
+    "四件套服务",
+    set(services) >= {"fishnet", "dailyhot", "rsshub", "redis"},
+    str(sorted(services)),
+)
+fish = services.get("fishnet") or {}
+check("fishnet build 当前目录", fish.get("build") == ".", str(fish.get("build")))
+vols = [str(v) for v in (fish.get("volumes") or [])]
+check("挂 data", any("data" in v for v in vols), str(vols))
+check("挂 config", any("config" in v for v in vols), str(vols))
+env = fish.get("environment") or {}
+if isinstance(env, list):
+    env = dict(x.split("=", 1) for x in env if isinstance(x, str) and "=" in x)
+check(
+    "容器内 DailyHot 走服务名",
+    str(env.get("FISHNET_DAILYHOT_URL", "")).startswith("http://dailyhot"),
+    str(env),
+)
+check(
+    "容器内 RSSHub 走服务名",
+    str(env.get("FISHNET_RSSHUB_URL", "")).startswith("http://rsshub"),
+    str(env),
+)
+deps = fish.get("depends_on") or []
+if isinstance(deps, dict):
+    deps = list(deps)
+check("depends_on rsshub+dailyhot", "rsshub" in deps and "dailyhot" in deps, str(deps))
+check("restart unless-stopped", fish.get("restart") == "unless-stopped")
+dh = services.get("dailyhot") or {}
+check("dailyhot 官方镜像", "dailyhot-api" in str(dh.get("image", "")))
+rss = services.get("rsshub") or {}
+check("rsshub chromium-bundled", "rsshub" in str(rss.get("image", "")))
+
+wewe_overlay = yaml.safe_load(
+    (ROOT / "docker-compose.wewe-rss.yml").read_text(encoding="utf-8")
+) or {}
+wewe_fish = (wewe_overlay.get("services") or {}).get("fishnet") or {}
+wewe_env = wewe_fish.get("environment") or {}
+if isinstance(wewe_env, list):
+    wewe_env = dict(x.split("=", 1) for x in wewe_env if isinstance(x, str) and "=" in x)
+check(
+    "wewe overlay 注入 FISHNET_WEWE_URL",
+    "wewe-rss" in str(wewe_env.get("FISHNET_WEWE_URL", "")),
+    str(wewe_env),
+)
+check(
+    "wewe overlay 不覆盖 depends_on",
+    "depends_on" not in wewe_fish,
+    str(wewe_fish.keys()),
+)
+
+
+print("\n[Lab 9.2] 容器 URL 覆盖")
+keys = ("FISHNET_DAILYHOT_URL", "FISHNET_RSSHUB_URL", "FISHNET_WEWE_URL")
+saved = {k: os.environ.pop(k, None) for k in keys}
+try:
+    check("空 env 回落 toml", url_from_env("FISHNET_DAILYHOT_URL", "http://127.0.0.1:6688") == "http://127.0.0.1:6688")
+    os.environ["FISHNET_DAILYHOT_URL"] = "http://dailyhot:6688/"
+    os.environ["FISHNET_RSSHUB_URL"] = "http://rsshub:1200"
+    os.environ["FISHNET_WEWE_URL"] = "http://wewe-rss:4000"
+    s = load_settings()
+    check("FISHNET_DAILYHOT_URL 覆盖", s.dailyhot_url == "http://dailyhot:6688", s.dailyhot_url)
+    check("FISHNET_RSSHUB_URL 覆盖", s.rsshub_url == "http://rsshub:1200", s.rsshub_url)
+    check("FISHNET_WEWE_URL 覆盖", s.wewe_url == "http://wewe-rss:4000", s.wewe_url)
+    check(
+        "本机 wewe 不改写",
+        rewrite_wewe_loopback("http://127.0.0.1:4000/feeds/x.atom", "http://127.0.0.1:4000")
+        == "http://127.0.0.1:4000/feeds/x.atom",
+    )
+    check(
+        "容器 wewe 改写 loopback",
+        rewrite_wewe_loopback("http://127.0.0.1:4000/feeds/x.atom", "http://wewe-rss:4000")
+        == "http://wewe-rss:4000/feeds/x.atom",
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        src = Path(tmp) / "sources.yaml"
+        wechat = Path(tmp) / "wechat.yaml"
+        overlay = Path(tmp) / "overlay.yaml"
+        src.write_text("feeds: []\n", encoding="utf-8")
+        overlay.write_text("feeds: []\nreplacements: []\ndisabled: []\n", encoding="utf-8")
+        wechat.write_text(
+            "feeds:\n"
+            "  - name: 示例公众号\n"
+            "    url: http://127.0.0.1:4000/feeds/MP_WXS_1.atom\n"
+            "    source: wechat_mp\n"
+            "    kind: article\n"
+            "  - name: 占位公众号\n"
+            "    url: \"{wewe}/feeds/MP_WXS_2.atom\"\n"
+            "    source: wechat_mp\n"
+            "    kind: article\n",
+            encoding="utf-8",
+        )
+        feeds = load_feeds(
+            src,
+            rsshub_url="http://rsshub:1200",
+            wewe_url="http://wewe-rss:4000",
+            overlay_path=overlay,
+            wechat_path=wechat,
+        )
+        urls = [f["url"] for f in feeds]
+        check(
+            "wechat loopback 改写成服务名",
+            "http://wewe-rss:4000/feeds/MP_WXS_1.atom" in urls,
+            str(urls),
+        )
+        check("{wewe} 占位展开", "http://wewe-rss:4000/feeds/MP_WXS_2.atom" in urls, str(urls))
+        check("不再指向 127.0.0.1:4000", all("127.0.0.1:4000" not in u for u in urls), str(urls))
+finally:
+    for k, v in saved.items():
+        if v is None:
+            os.environ.pop(k, None)
+        else:
+            os.environ[k] = v
 
 
 print(f"\n{PASS} passed, {FAIL} failed")

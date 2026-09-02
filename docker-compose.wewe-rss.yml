@@ -5,8 +5,15 @@
 #
 # 管理界面: http://127.0.0.1:4000
 # 详细步骤见 docs/lab-03-rsshub.md §「部署 WeWe RSS」
+#
+# 叠加后 fishnet 容器改走 http://wewe-rss:4000,并把 wechat.yaml 里的
+# 127.0.0.1:4000 改写成服务名。本机浏览器仍打开 127.0.0.1:4000。
 
 services:
+  fishnet:
+    environment:
+      FISHNET_WEWE_URL: http://wewe-rss:4000
+
   wewe-rss:
     image: cooderl/wewe-rss-sqlite:latest
     ports:

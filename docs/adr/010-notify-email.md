@@ -13,16 +13,19 @@ Lab 9.1 要在邮件 / Telegram / 飞书 / 自建静态站之间选通道。Lab 
 ## 决策
 
 1. **主通道是 SMTP 邮件。** 附件原生、邮箱可搜可归档、配置成本最低。Telegram / 飞书 / 静态站 / 客户端名字写进 `channels`,调用时跳过并记日志,本切片不发。
-2. **正文是扫读摘要,不是 A3 `digest.html`。** 从 `articles.json` 抽头版/深度/口播等标题 + 首段。A3 HTML 依赖 `--paper-width` 和邮件客户端不认的 CSS,内联进去既撑爆邮箱又排不好。
+2. **正文是扫读摘要,不是 A3** `digest.html`**。** 从 `articles.json` 抽头版/深度/口播等标题 + 首段。A3 HTML 依赖 `--paper-width` 和邮件客户端不认的 CSS,内联进去既撑爆邮箱又排不好。
 3. **PDF 当附件。** 超过 `max_attach_mb`(默认 15)就只发摘要,不硬塞。默认不附 `digest.html`。
-4. **密钥只走 `.env`。** `FISHNET_SMTP_*`;`settings.toml` 只放通道开关和附件策略。
+4. **密钥只走** `.env`**。** `FISHNET_SMTP_`*;`settings.toml` 只放通道开关和附件策略。
 5. **出报成功后立刻 push。** 不另开 07:30 cron——出报可能跑过 20 分钟,固定钟点会抢在 PDF 写完之前。`notify.json` 做幂等,`--force` 才重发。SMTP 没配则跳过,`serve` 照常出报。
+
+
 
 ## 明确不做
 
 - 不在本切片做 Telegram Bot、飞书机器人、静态站 RSS。
-- 不把 `edition.json` / 移动端客户端当投递目标。
-- 不把 Docker 全家桶和 90 天归档绑进这一步(仍属 Lab 9 后半)。
+- 不把 90 天归档绑进这一步(仍属 9.3)。Docker 全家桶见 [ADR-011](./011-compose-runtime.md)。
+
+
 
 ## 后果
 
@@ -30,8 +33,11 @@ Lab 9.1 要在邮件 / Telegram / 飞书 / 自建静态站之间选通道。Lab 
 - **负面**: 手机上没有「点开即读完整报纸」的 HTML 体验;提醒通道要以后另接。
 - **成本**: 标准库 `smtplib`,无新依赖。QQ/163 要用授权码,不是登录密码。
 
+
+
 ## 何时重新评估
 
 1. 要早餐提醒但不想开邮箱时,再加 Telegram 卡片(仍附或不附 PDF)。
 2. 若有稳定的 HTTPS 归档站,邮件正文可以改成链接,不再附 4MB PDF。
 3. 客户端若承担「投递到手机」,那是另一条通道,不要混进 SMTP。
+

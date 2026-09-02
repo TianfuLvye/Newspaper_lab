@@ -1,4 +1,4 @@
-# Fishnet 项目结构（Lab 9 邮件切片之后）
+# Fishnet 项目结构（Lab 9.2 Compose 全家桶之后）
 
 配套手册是仓库上一级的 `Fishnet-Lab.md`。本仓库 `fishnet-reference/` 是实现。设计决策按 Lab 记在 `docs/lab-*.md` 和 `docs/adr/`；本文只画**现在代码实际长什么样**。
 
@@ -31,14 +31,15 @@ fishnet-lab/                      ← Cursor 工作区
     └── data/                     运行时产物（不进 git）
 ```
 
-依赖外部进程，不写进 Python 包里：
+依赖外部进程。Lab 9.2 起默认走 `docker compose up -d`(fishnet 也在里面):
 
 | 服务 | 干什么 | 怎么起 |
 |---|---|---|
-| DailyHotApi `:6688` | 微博/知乎/抖音等热榜 | `docker run … imsyy/dailyhot-api` |
-| RSSHub `:1200` + Redis | 知乎回答、B 站、见闻等订阅 | `docker compose up -d` |
+| fishnet | `main.py serve`:调度 + 出报 + 邮件 | compose 服务 `fishnet`(build Dockerfile) |
+| DailyHotApi `:6688` | 微博/知乎/抖音等热榜 | compose 服务 `dailyhot` |
+| RSSHub `:1200` + Redis | 知乎回答、B 站、见闻等订阅 | compose 服务 `rsshub` / `redis` |
 | WeWe RSS（可选） | 公众号 → RSS | `docker-compose.wewe-rss.yml` |
-| MediaCrawler（可选） | 指定小红书创作者 | 独立仓库，子进程调用 |
+| MediaCrawler（可选） | 指定小红书创作者 | 独立仓库,子进程调用;**不进镜像** |
 
 ---
 
@@ -143,7 +144,8 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 ### 4.6 `scheduler/` / `notify/`
 
 - `scheduler/run.py`：热榜 30min、RSS 60min、定向与 enrich 6h；07:00 早报 / 19:00 晚报（`Asia/Shanghai`）。jitter + coalesce，避免整点齐发和补跑风暴。出报成功后立刻 `push`。
-- `notify/`：Lab 9。主通道 SMTP。`main.py push` 发摘要 + `digest.pdf`；未配置则跳过。
+- `notify/`：Lab 9.1。主通道 SMTP。`main.py push` 发摘要 + `digest.pdf`；未配置则跳过。
+- `Dockerfile` / `docker-compose.yml`：Lab 9.2。容器内 `FISHNET_*_URL` 指向服务名；本机 CLI 仍用 `127.0.0.1`。
 
 ---
 
@@ -157,7 +159,7 @@ collectors/*  ──►  Item  ──►  Store (data/fishnet.db)
 | `config/golden.yaml` | 黄金集路径、知乎收藏夹 id |
 | `config/golden.jsonl` | 画像语料（gitignore，个人数据） |
 | `config/wechat.yaml` | WeWe 公众号（gitignore） |
-| `.env` | `ZHIHU_COOKIES`、`FISHNET_LLM_API_KEY`、`FISHNET_SMTP_*` |
+| `.env` | `ZHIHU_COOKIES`、`FISHNET_LLM_API_KEY`、`FISHNET_SMTP_*`；容器内另有 compose 注入的 `FISHNET_*_URL` |
 
 `[ranking]` 当前：粗排 Top 150 进评委；头版 3、深度 8、今日一问 3；探索比 15%。
 
@@ -262,7 +264,7 @@ uv run main.py render --edition am
 | 6 调度 | 早晚自动出报 + 体检页 | `scheduler/run.py` `pipeline/edition.py` |
 | 7 个性化 | 头版/深度/今日一问 + Fnn | `pipeline/rank.py` `render/ranked.py` |
 | 8 渲染 | A3 报纸 PDF/HTML（newspaper-layout v0.4） | `render/edition_to_articles.py` `render/newspaper.py` |
-| 9 推送 | 邮箱收到摘要 + PDF | `notify/` `main.py push` |
+| 9 推送 / 部署 | 邮箱收到摘要 + PDF;compose 一条命令起全家桶 | `notify/` `Dockerfile` `main.py push` |
 
 文档索引见 [README.md](./README.md)。
 

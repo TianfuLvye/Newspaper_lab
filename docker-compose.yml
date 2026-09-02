@@ -1,11 +1,44 @@
-# Lab 3:自部署 RSSHub(+ Redis 缓存)。
+# Lab 9.2:Docker Compose 全家桶。
 #
-# 用法: docker compose up -d
-# 公众号 WeWe RSS 见 docker-compose.wewe-rss.yml 与 docs/lab-03-rsshub.md §3.4
+#   docker compose up -d
+#   拉起 fishnet(serve) + DailyHotApi + RSSHub + Redis。
 #
-# 知乎 Cookie 等见 .env.example（勿提交 .env）。
+# 公众号 WeWe RSS 仍是可选叠加:
+#   docker compose -f docker-compose.yml -f docker-compose.wewe-rss.yml up -d
+#
+# 以前用 `docker run --name dailyhot` 占着 6688 的,先 `docker rm -f dailyhot`。
+# 知乎 Cookie 见 .env.example;改完重建 rsshub:
+#   docker compose up -d --force-recreate rsshub
 
 services:
+  fishnet:
+    build: .
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      TZ: Asia/Shanghai
+      FISHNET_DAILYHOT_URL: http://dailyhot:6688
+      FISHNET_RSSHUB_URL: http://rsshub:1200
+    depends_on:
+      - rsshub
+      - dailyhot
+    shm_size: "1gb"
+    init: true
+    restart: unless-stopped
+
+  dailyhot:
+    image: imsyy/dailyhot-api:latest
+    ports:
+      - "6688:6688"
+    environment:
+      ALLOWED_DOMAIN: "*"
+      ALLOWED_HOST: "0.0.0.0"
+    restart: unless-stopped
+
   rsshub:
     image: diygod/rsshub:chromium-bundled
     ports:

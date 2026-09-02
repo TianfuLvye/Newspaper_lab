@@ -17,7 +17,8 @@
 | [lab-06-scheduler.md](./lab-06-scheduler.md) | Lab 6 · 调度 | APScheduler 常驻、早晚出报、used_in、系统体检 |
 | [lab-07-ranking.md](./lab-07-ranking.md) | Lab 7 · 个性化 | 黄金集、两阶段打分、事件折叠、反馈、A/B |
 | [lab-08-render.md](./lab-08-render.md) | Lab 8 · 渲染 | 期次 Markdown → newspaper-layout v0.4 HTML/PDF |
-| [lab-09-notify.md](./lab-09-notify.md) | Lab 9 · 推送 | 通道选邮件;摘要正文 + PDF 附件 |
+| [lab-09-notify.md](./lab-09-notify.md) | Lab 9.1 · 推送 | 通道选邮件;摘要正文 + PDF 附件 |
+| [lab-09-compose.md](./lab-09-compose.md) | Lab 9.2 · 部署 | Compose 全家桶;容器 URL 覆盖;冷启动自愈 |
 | [adr/001-why-not-trendradar.md](./adr/001-why-not-trendradar.md) | ADR-001 | 只借鉴 TrendRadar 设计、不依赖其运行时 |
 | [adr/002-wechat-mp-strategy.md](./adr/002-wechat-mp-strategy.md) | ADR-002 | 公众号走 WeWe RSS，Fishnet 只消费 RSS |
 | [adr/003-mediacrawler-scope.md](./adr/003-mediacrawler-scope.md) | ADR-003 | MediaCrawler 只覆盖指定小红书创作者 |
@@ -28,6 +29,7 @@
 | [adr/007-newspaper-grid.md](./adr/007-newspaper-grid.md) | ADR-007 | 自研 A3 网格（已被 ADR-009 superseded） |
 | [adr/009-newspaper-layout-v04.md](./adr/009-newspaper-layout-v04.md) | ADR-009 | Lab 8 版心改为 newspaper-layout v0.4 |
 | [adr/010-notify-email.md](./adr/010-notify-email.md) | ADR-010 | 推送主通道 SMTP;不内联 A3 HTML |
+| [adr/011-compose-runtime.md](./adr/011-compose-runtime.md) | ADR-011 | 全家桶进 Compose;本机 URL 用环境变量覆盖 |
 | [notes/anti-crawling.md](./notes/anti-crawling.md) | Lab 4.2 | 登录态、签名、Playwright 代价、限速 |
 
 ## 后续 Lab 怎么写（模板）

@@ -1,0 +1,23 @@
+# 构建上下文:只要跑 serve 需要的代码和锁文件。
+.venv
+.git
+data
+tmp
+**/__pycache__
+**/*.py[cod]
+**/*.egg-info
+.ruff_cache
+.pytest_cache
+.mypy_cache
+third_party
+sandbox
+.cursor
+.DS_Store
+.env
+.env.*
+!.env.example
+*.db
+*.db-*
+docs
+tests
+.ruff.toml
